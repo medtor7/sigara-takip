@@ -2,7 +2,7 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {
   initializeFirestore, persistentLocalCache, collection, addDoc,
-  query, where, orderBy, limit, onSnapshot
+  query, where, orderBy, limit, onSnapshot, getCountFromServer
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 const firebaseConfig = {
@@ -27,20 +27,25 @@ export const dayKey = ts => {
   const d = new Date(ts);
   return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
 };
+export const monthKey = ts => dayKey(ts).slice(0, 7);
 
 // type: "craving" | "wait" | "passed" | "smoked"; via: "ask" | "manual" | "after-wait"
 export function logEvent(type, via, ts = Date.now()) {
-  const ev = { type, ts, day: dayKey(ts) };
+  const ev = { type, ts, day: dayKey(ts), month: monthKey(ts) };
   if (via) ev.via = via;
   return addDoc(events, ev);
 }
 
-export function watchToday(cb, onErr) {
-  return onSnapshot(query(events, where("day", "==", dayKey(Date.now()))),
-    s => cb(s.docs.map(d => d.data())), onErr);
+// Kayıtları tek tek okumadan sayar (1000 kayıt başına yaklaşık 1 okuma).
+// filters: { type: "smoked", month: "2026-11" } gibi; hepsi "eşittir" koşulu.
+export async function countWhere(filters) {
+  const q = query(events, ...Object.entries(filters).map(([f, v]) => where(f, "==", v)));
+  const s = await getCountFromServer(q);
+  return s.data().count;
 }
 
-export function watchRecent(cb, onErr) {
-  return onSnapshot(query(events, orderBy("ts", "desc"), limit(1000)),
+// Son hareketler (takip sayfası için, sadece son birkaç kayıt)
+export function watchRecent(n, cb, onErr) {
+  return onSnapshot(query(events, orderBy("ts", "desc"), limit(n)),
     s => cb(s.docs.map(d => d.data())), onErr);
 }

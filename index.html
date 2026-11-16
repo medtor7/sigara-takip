@@ -18,15 +18,25 @@
 
   <!-- ANA SAYFA -->
   <section class="screen" id="s-home">
-    <div class="cat" data-cat="home"></div>
+    <div class="cat medium" data-cat="home"></div>
     <h1 class="msg">Merhaba anneciğim</h1>
-    <p class="sub">Sigara isteği gelince bu düğmeye bas. Birlikte bekleyelim.</p>
     <button class="big" id="b-crave">Canım çekiyor</button>
+    <button class="btn smoked-btn" id="b-manual">1 sigara içtim</button>
+    <p class="toast" id="toast" role="status" hidden><span id="toast-txt"></span> <button class="undo" id="b-undo">Geri al</button></p>
+
+    <div class="month">
+      <div class="month-head"><span id="m-name">Bu ay</span><span class="note">her ayın 1'inde sıfırlanır</span></div>
+      <div class="month-row">
+        <div><b id="m-smoked">0</b><span>sigara</span></div>
+        <div class="debt"><b id="m-debt">0 ₺</b><span>bana borcun</span></div>
+      </div>
+      <p class="debt-note" id="m-note">Her sigara için bana 1 ₺ borçlusun 😼</p>
+    </div>
+
     <div class="today">
       <div class="stat"><b id="t-smoked">0</b><span>bugün içilen</span></div>
       <div class="stat good"><b id="t-passed">0</b><span>bugün vazgeçtin</span></div>
     </div>
-    <button class="small-link" id="b-manual">Düğmeye basmadan bir sigara içtim, ekle</button>
     <p class="status" id="status"></p>
   </section>
 
@@ -47,16 +57,16 @@
     <h1 class="msg">Harikasın! 5 dakika bekliyoruz.</h1>
     <div class="seg" role="group" aria-label="Beklerken ne yapmak istersin">
       <button aria-pressed="true" data-mode="tips">Sadece bekle</button>
-      <button aria-pressed="false" data-mode="game">Oyun</button>
+      <button aria-pressed="false" data-mode="game">Sigara vur</button>
     </div>
     <div class="panel" id="p-tips">
       <p class="tip" id="tip"></p>
       <p class="sub">İstersen uygulamadan çıkabilirsin. 5 dakika sonra tekrar açınca sana soracağım.</p>
     </div>
-    <div class="panel" id="p-game" hidden>
-      <div class="gamehead"><span>Puan: <b id="score">0</b></span><button class="small-link" id="b-shuffle" style="padding:0">Karıştır</button></div>
-      <div class="board" id="board"></div>
-      <p class="note">Yan yana iki meyveye dokun, yerlerini değiştir. 3 aynı meyveyi yan yana getir.</p>
+    <div class="panel game" id="p-game" hidden>
+      <div class="gamehead"><span>Kırılan sigara: <b id="score">0</b></span></div>
+      <canvas id="cv" aria-label="Hedef oyunu: kayan sigaralara dokun, topu at ve kır"></canvas>
+      <p class="note">Kayan sigaralara dokun. Top gidip sigarayı kırar.</p>
     </div>
     <div class="timerbar">
       <span class="t" id="timer">5:00</span>
@@ -86,16 +96,13 @@
   <section class="screen" id="s-smoked" hidden>
     <div class="cat" data-cat="smoked"></div>
     <h1 class="msg">Tamam, iç.<br>Sonraki sefer yine buradayım.</h1>
-    <p class="sub">Kızgın değilim. Her deneme bir adım.</p>
+    <p class="sub">Kızgın değilim. Her deneme bir adım. Borcuna 1 ₺ ekledim 😼</p>
     <div class="actions"><button class="btn plain" data-go="home">Ana sayfaya dön</button></div>
   </section>
 
 </div>
 
 <script type="module">
-// Firebase sonradan yüklenir; yüklenemese bile düğmeler çalışır.
-let fb = null; const pending = [];
-
 // Kedi görselleri (jpg, png ya da gif). Boş bırakılan ekranda kedi emojisi görünür.
 // pos: yuvarlak çerçevede görselin hangi kısmının görüneceği ("yatay dikey").
 const PHOTOS = {
@@ -106,51 +113,101 @@ const PHOTOS = {
   passed: { src:"images/5-aferin.jpg" },
   smoked: { src:"images/6-tamam-ic.jpg",      pos:"40% 40%" },
 };
-const CATS   = { home:"😺", ask:"😿", wait:"😸", check:"🐱", passed:"😻", smoked:"😽" };
+const CATS = { home:"😺", ask:"😿", wait:"😸", check:"🐱", passed:"😻", smoked:"😽" };
 
-const WAIT_MS = 5*60*1000;
+const BORC_TL = 1;               // her sigara için borç (TL)
+const WAIT_MS = 5*60*1000;       // bekleme süresi
 const TIPS = ["Bir bardak su iç.","Pencereyi aç, biraz temiz hava al.","Ellerini yıka, yüzüne su çarp.","Bir sakız ya da bir dilim elma ye.","Kalk, evin içinde biraz yürü.","Torunlarından birine mesaj at.","Bir şarkı aç, mırıldan.","Bu istek bir dalga gibi. Gelir ve geçer."];
+const MONTHS = ["Ocak","Şubat","Mart","Nisan","Mayıs","Haziran","Temmuz","Ağustos","Eylül","Ekim","Kasım","Aralık"];
 
 const $ = id => document.getElementById(id);
 const ls = {get(k){try{return localStorage.getItem(k)}catch{return null}}, set(k,v){try{localStorage.setItem(k,v)}catch{}}, del(k){try{localStorage.removeItem(k)}catch{}}};
-let today = [];
+const dayKey = ts => { const d = new Date(ts); return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); };
+
+// Firebase sonradan yüklenir; yüklenemese bile düğmeler çalışır.
+let fb = null; const pending = [];
+// Sunucudaki sayılar (son açılışta). İnternet yoksa en son bilinen sayılar kullanılır.
+let base = { day: "", month: "", m: 0, t: 0, p: 0 };
+try { const c = JSON.parse(ls.get("counts") || "null"); if (c) base = c; } catch {}
+let localOnly = [];              // bu cihazdan eklenen, henüz sayılara girmemiş kayıtlar
 
 // ---------- kediler ----------
-document.querySelectorAll("[data-cat]").forEach(el=>{
-  const k = el.dataset.cat;
-  const ph = PHOTOS[k];
+document.querySelectorAll("[data-cat]").forEach(el => {
+  const k = el.dataset.cat, ph = PHOTOS[k];
   if (ph && ph.src) {
     const img = new Image(); img.src = ph.src; img.alt = "";
     if (ph.pos) img.style.objectPosition = ph.pos;
     img.onerror = () => { el.textContent = CATS[k]; };
     el.append(img);
-  }
-  else el.textContent = CATS[k];
+  } else el.textContent = CATS[k];
 });
 
 // ---------- kayıt ----------
-function log(type, via){
-  const ts = Date.now();
-  today.push({ type, ts });
-  renderToday();
-  if (!fb) { pending.push([type, via, ts]); return; }
-  fb.logEvent(type, via, ts).catch(() => { $("status").textContent = "Kaydedilemedi. İnternet gelince tekrar dene."; });
+function send(ev, via){
+  if (!fb) { pending.push([ev, via]); return; }
+  fb.logEvent(ev.type, via, ev.ts)
+    .then(() => { ev.ackedAt = Date.now(); })
+    .catch(() => { $("status").textContent = "Kaydedilemedi. İnternet gelince tekrar dene."; });
 }
+function log(type, via){
+  const ev = { type, ts: Date.now() };
+  localOnly.push(ev);
+  render();
+  send(ev, via);
+}
+
+// ---------- sayılar ----------
+let undoTimer = null;
+function counts(){
+  const today = dayKey(Date.now()), month = today.slice(0, 7);
+  const b = { m: base.month === month ? base.m : 0, t: base.day === today ? base.t : 0, p: base.day === today ? base.p : 0 };
+  const loc = t => localOnly.filter(e => e.type === t).length;
+  return { m: b.m + loc("smoked"), t: b.t + loc("smoked"), p: b.p + loc("passed") };
+}
+function render(){
+  const k = counts(), extra = undoTimer ? 1 : 0;
+  const monthSmoked = k.m + extra;
+  $("t-smoked").textContent = k.t + extra;
+  $("t-passed").textContent = k.p;
+  $("m-smoked").textContent = monthSmoked;
+  $("m-debt").textContent = (monthSmoked * BORC_TL).toLocaleString("tr-TR") + " ₺";
+  $("m-name").textContent = MONTHS[new Date().getMonth()] + " ayı";
+  $("m-note").textContent = `Her sigara için bana ${BORC_TL} ₺ borçlusun 😼`;
+  return monthSmoked;
+}
+const passedToday = () => counts().p;
+
+// ---------- "1 sigara içtim" (5 saniye içinde geri alınabilir) ----------
+function commitManual(){
+  if (!undoTimer) return;
+  clearTimeout(undoTimer); undoTimer = null;
+  $("toast").hidden = true;
+  log("smoked", "manual");
+}
+$("b-manual").onclick = () => {
+  commitManual();
+  undoTimer = setTimeout(commitManual, 5000);
+  const n = render();
+  $("toast-txt").textContent = `Kaydettim. Bu ay borcun ${(n*BORC_TL).toLocaleString("tr-TR")} ₺ oldu.`;
+  $("toast").hidden = false;
+};
+$("b-undo").onclick = () => { clearTimeout(undoTimer); undoTimer = null; $("toast").hidden = true; render(); };
+document.addEventListener("visibilitychange", () => { if (document.hidden) commitManual(); });
 
 // ---------- ekranlar ----------
 const SCREENS = ["home","ask","wait","check","passed","smoked"];
 function go(name){
   SCREENS.forEach(s => $("s-"+s).hidden = s !== name);
+  if (name !== "wait") game.stop();
   window.scrollTo(0,0);
 }
 document.querySelectorAll("[data-go]").forEach(b => b.onclick = () => go(b.dataset.go));
 
-$("b-crave").onclick     = () => { log("craving"); go("ask"); };
+$("b-crave").onclick     = () => { commitManual(); log("craving"); go("ask"); };
 $("b-smoke-now").onclick = () => { log("smoked","ask"); go("smoked"); };
-$("b-manual").onclick    = () => { log("smoked","manual"); go("smoked"); };
 $("b-wait").onclick      = () => { log("wait"); startTimer(Date.now()+WAIT_MS); };
 $("b-passed").onclick    = () => {
-  const n = count("passed") + 1;
+  const n = passedToday() + 1;
   log("passed");
   $("passed-sub").textContent = n > 1 ? `Bugün ${n} kez vazgeçtin.` : "Bugün ilk zaferin!";
   go("passed");
@@ -161,7 +218,7 @@ $("b-still").onclick     = () => { log("smoked","after-wait"); go("smoked"); };
 let timerEnd = null, timerInt = null;
 function startTimer(end){
   timerEnd = end; ls.set("timerEnd", String(end));
-  setMode("tips"); go("wait"); tick();
+  go("wait"); setMode("tips"); tick();
   clearInterval(timerInt); timerInt = setInterval(tick, 250);
 }
 function tick(){
@@ -181,87 +238,157 @@ function setMode(m){
   $("p-tips").hidden = m !== "tips"; $("p-game").hidden = m !== "game";
   clearInterval(tipInt);
   if (m === "tips") { showTip(); tipInt = setInterval(showTip, 20000); }
-  if (m === "game" && !board.length) newBoard();
+  if (m === "game") game.start(); else game.stop();
 }
 document.querySelectorAll(".seg button").forEach(b => b.onclick = () => setMode(b.dataset.mode));
 
-// ---------- oyun ----------
-const N = 7, FRUITS = ["🍓","🍋","🫐","🍇","🍊","🥝"];
-let board = [], sel = -1, busy = false, score = 0;
-const rnd = () => FRUITS[Math.floor(Math.random()*FRUITS.length)];
-function newBoard(){
-  board = [];
-  for (let i=0;i<N*N;i++){
-    let f; do { f = rnd(); } while (
-      (i%N>=2 && board[i-1]===f && board[i-2]===f) ||
-      (i>=2*N && board[i-N]===f && board[i-2*N]===f));
-    board.push(f);
-  }
-  sel = -1; drawBoard();
-}
-function drawBoard(pop = new Set()){
-  const el = $("board");
-  if (el.children.length !== N*N)
-    el.replaceChildren(...board.map((_,i) => { const b = document.createElement("button"); b.onclick = () => tap(i); return b; }));
-  [...el.children].forEach((b,i) => {
-    b.textContent = board[i] || "";
-    b.classList.toggle("sel", i === sel);
-    b.classList.toggle("pop", pop.has(i));
-    b.setAttribute("aria-label", (board[i]||"boş") + " satır " + (Math.floor(i/N)+1) + " sütun " + (i%N+1));
-  });
-  $("score").textContent = score;
-}
-function findMatches(){
-  const m = new Set();
-  for (let r=0;r<N;r++) for (let c=0;c<N;c++){
-    const f = board[r*N+c]; if (!f) continue;
-    if (c<=N-3){ let k=c; while(k<N && board[r*N+k]===f) k++; if (k-c>=3) for(let j=c;j<k;j++) m.add(r*N+j); }
-    if (r<=N-3){ let k=r; while(k<N && board[k*N+c]===f) k++; if (k-r>=3) for(let j=r;j<k;j++) m.add(j*N+c); }
-  }
-  return m;
-}
-const sleep = ms => new Promise(r => setTimeout(r, ms));
-async function resolve(){
-  let m = findMatches();
-  while (m.size){
-    score += m.size*10; drawBoard(m); await sleep(220);
-    m.forEach(i => board[i] = null);
-    for (let c=0;c<N;c++){
-      const col = []; for (let r=N-1;r>=0;r--){ const v = board[r*N+c]; if (v) col.push(v); }
-      for (let r=N-1,k=0;r>=0;r--,k++) board[r*N+c] = col[k] || rnd();
-    }
-    drawBoard(); await sleep(180);
-    m = findMatches();
-  }
-}
-async function tap(i){
-  if (busy) return;
-  if (sel < 0) { sel = i; drawBoard(); return; }
-  if (sel === i) { sel = -1; drawBoard(); return; }
-  const a = sel, adj = (Math.abs(a-i)===1 && Math.floor(a/N)===Math.floor(i/N)) || Math.abs(a-i)===N;
-  if (!adj) { sel = i; drawBoard(); return; }
-  busy = true; sel = -1;
-  [board[a],board[i]] = [board[i],board[a]]; drawBoard(); await sleep(150);
-  if (findMatches().size) await resolve();
-  else { [board[a],board[i]] = [board[i],board[a]]; const el=$("board"); el.classList.add("shake"); await sleep(300); el.classList.remove("shake"); drawBoard(); }
-  busy = false;
-}
-$("b-shuffle").onclick = () => { if (!busy) newBoard(); };
+// ---------- oyun: lunapark hedef atışı ----------
+const game = (() => {
+  const cv = $("cv"), ctx = cv.getContext("2d");
+  let W = 0, H = 0, raf = null, last = 0, broken = 0;
+  let targets = [], balls = [], pieces = [], pops = [];
+  const LANES = [0.26, 0.47, 0.68];
+  const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+  let C = {};
 
-// ---------- bugünün sayıları ----------
-const count = t => today.filter(e => e.type === t).length;
-function renderToday(){ $("t-smoked").textContent = count("smoked"); $("t-passed").textContent = count("passed"); }
+  function resize(){
+    const r = cv.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
+    W = r.width; H = r.height;
+    cv.width = Math.round(W*dpr); cv.height = Math.round(H*dpr);
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+  }
+  function spawn(lane, x){
+    const dir = lane === 1 ? -1 : 1;
+    const speed = (45 + Math.random()*35) * (1 + Math.min(broken, 30)/30);
+    targets.push({ lane, dir, speed, w: 84, h: 16, x: x ?? (dir > 0 ? -80 : W + 80) });
+  }
+  function reset(){
+    targets = []; balls = []; pieces = []; pops = [];
+    for (let l = 0; l < 3; l++) { spawn(l, W*0.1 + Math.random()*W*0.2); spawn(l, W*0.6 + Math.random()*W*0.2); }
+  }
+  function drawCig(x, y, w, h, part){   // part: "all" | "filter" | "paper"
+    const fw = w*0.3;
+    if (part !== "paper") {
+      ctx.fillStyle = "#D98A3D"; ctx.fillRect(x, y-h/2, fw, h);
+      ctx.fillStyle = "rgba(120,60,10,.35)"; for (let i = 4; i < fw; i += 6) ctx.fillRect(x+i, y-h/2+3, 2, 2);
+    }
+    if (part !== "filter") {
+      ctx.fillStyle = "#F7F5F0"; ctx.fillRect(x+fw, y-h/2, w-fw, h);
+      ctx.strokeStyle = "rgba(0,0,0,.2)"; ctx.lineWidth = 1; ctx.strokeRect(x+fw+.5, y-h/2+.5, w-fw-1, h-1);
+      ctx.fillStyle = "#8A8A8A"; ctx.fillRect(x+w-6, y-h/2, 6, h);
+    }
+  }
+  function update(dt){
+    for (const t of targets) t.x += t.dir * t.speed * dt;
+    targets = targets.filter(t => t.x > -120 && t.x < W + 120);
+    for (let l = 0; l < 3; l++) {
+      const n = targets.filter(t => t.lane === l).length;
+      if (n < 2 && Math.random() < dt*1.2) spawn(l);
+    }
+    for (const b of balls) {
+      b.t += dt / 0.28;
+      if (b.t >= 1 && !b.done) {
+        b.done = true;
+        const hit = targets.find(t => {
+          const y = H*LANES[t.lane];
+          return b.tx > t.x - 14 && b.tx < t.x + t.w + 14 && Math.abs(b.ty - y) < t.h/2 + 16;
+        });
+        if (hit) {
+          const y = H*LANES[hit.lane];
+          targets = targets.filter(t => t !== hit);
+          broken++; $("score").textContent = broken;
+          pieces.push({ part:"filter", x: hit.x, y, w: hit.w, h: hit.h, vx: -60 - Math.random()*40, vy: -140, r: 0, vr: -4 - Math.random()*3 });
+          pieces.push({ part:"paper",  x: hit.x, y, w: hit.w, h: hit.h, vx:  60 + Math.random()*40, vy: -160, r: 0, vr:  4 + Math.random()*3 });
+          const msgs = ["Kırıldı!", "Bir sigara eksik!", "Süpersin!", "Pat!", "Harika atış!"];
+          pops.push({ x: b.tx, y: b.ty - 12, txt: msgs[Math.floor(Math.random()*msgs.length)], life: 1 });
+          try { navigator.vibrate && navigator.vibrate(30); } catch {}
+        } else pops.push({ x: b.tx, y: b.ty - 12, txt: "Iska", life: .6, miss: true });
+      }
+    }
+    balls = balls.filter(b => b.t < 1.25);
+    for (const p of pieces) { p.vy += 520*dt; p.x += p.vx*dt; p.y += p.vy*dt; p.r += p.vr*dt; }
+    pieces = pieces.filter(p => p.y < H + 60);
+    for (const p of pops) { p.life -= dt; p.y -= 30*dt; }
+    pops = pops.filter(p => p.life > 0);
+  }
+  function draw(){
+    ctx.clearRect(0,0,W,H);
+    // lunapark tentesi
+    const sw = 28;
+    for (let i = 0, x = 0; x < W; i++, x += sw) {
+      ctx.fillStyle = i % 2 ? C.surface : C.no;
+      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x+sw, 0); ctx.lineTo(x+sw, 18);
+      ctx.arc(x+sw/2, 18, sw/2, 0, Math.PI); ctx.closePath(); ctx.fill();
+    }
+    // raflar
+    ctx.fillStyle = C.line;
+    for (const f of LANES) ctx.fillRect(8, H*f + 10, W-16, 5);
+    for (const t of targets) drawCig(t.x, H*LANES[t.lane], t.w, t.h, "all");
+    for (const p of pieces) {
+      ctx.save(); ctx.translate(p.x + p.w/2, p.y); ctx.rotate(p.r);
+      drawCig(-p.w/2, 0, p.w, p.h, p.part); ctx.restore();
+    }
+    // atılacak top
+    ctx.fillStyle = C.warm; ctx.beginPath(); ctx.arc(W/2, H-18, 11, 0, Math.PI*2); ctx.fill();
+    for (const b of balls) {
+      const t = Math.min(b.t, 1), x = b.sx + (b.tx-b.sx)*t, y = b.sy + (b.ty-b.sy)*t - Math.sin(t*Math.PI)*30;
+      ctx.fillStyle = C.warm; ctx.beginPath(); ctx.arc(x, y, 10 - 3*t, 0, Math.PI*2); ctx.fill();
+    }
+    ctx.textAlign = "center"; ctx.font = "600 20px Fredoka, Nunito, sans-serif";
+    for (const p of pops) { ctx.globalAlpha = Math.max(0, Math.min(1, p.life*1.5)); ctx.fillStyle = p.miss ? C.muted : C.accent; ctx.fillText(p.txt, p.x, p.y); }
+    ctx.globalAlpha = 1;
+  }
+  function loop(ts){
+    const dt = Math.min(0.05, (ts - (last || ts)) / 1000); last = ts;
+    update(dt); draw();
+    raf = requestAnimationFrame(loop);
+  }
+  cv.addEventListener("pointerdown", e => {
+    const r = cv.getBoundingClientRect();
+    balls.push({ sx: W/2, sy: H-18, tx: e.clientX - r.left, ty: e.clientY - r.top, t: 0 });
+  });
+  window.addEventListener("resize", () => { if (raf) resize(); });
+  return {
+    start(){
+      if (raf) return;
+      C = { surface: css("--surface"), no: css("--no"), line: css("--line"), warm: css("--warm"), accent: css("--accent"), muted: css("--muted") };
+      resize(); if (!targets.length) reset();
+      last = 0; raf = requestAnimationFrame(loop);
+    },
+    stop(){ if (raf) cancelAnimationFrame(raf); raf = null; }
+  };
+})();
+
+// ---------- Firebase ----------
+async function refresh(){
+  if (!fb) return;
+  const t0 = Date.now(), day = dayKey(t0), month = day.slice(0, 7);
+  try {
+    const [m, t, p] = await Promise.all([
+      fb.countWhere({ month, type: "smoked" }),
+      fb.countWhere({ day, type: "smoked" }),
+      fb.countWhere({ day, type: "passed" }),
+    ]);
+    base = { day, month, m, t, p };
+    ls.set("counts", JSON.stringify(base));
+    // Sunucuya sayımdan önce ulaşmış kayıtlar artık sayının içinde
+    localOnly = localOnly.filter(e => !(e.ackedAt && e.ackedAt < t0));
+    render(); $("status").textContent = "";
+  } catch { $("status").textContent = "Sayılar güncellenemedi. İnternet bağlantını kontrol et."; }
+}
 import("./firebase.js").then(m => {
   fb = m;
-  pending.splice(0).forEach(([t, v, ts]) => fb.logEvent(t, v, ts).catch(() => {}));
-  fb.watchToday(evs => { today = evs; renderToday(); $("status").textContent = ""; },
-                () => { $("status").textContent = "Sayılar yüklenemedi. İnternet bağlantını kontrol et."; });
+  pending.splice(0).forEach(([ev, v]) => send(ev, v));
+  refresh();
 }).catch(() => { $("status").textContent = "İnternet bağlantısı yok. Düğmeler yine de çalışır."; });
-// Gece yarısı geçince bugünün sayılarını sıfırla
-let lastDay = new Date().getDate();
-setInterval(() => { if (new Date().getDate() !== lastDay) location.reload(); }, 60000);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
+
+// Gün ya da ay değişince sayıları yenile
+let lastDay = dayKey(Date.now());
+setInterval(() => { if (dayKey(Date.now()) !== lastDay && !timerEnd) location.reload(); }, 60000);
 
 // ---------- açılış ----------
+render();
 const savedEnd = Number(ls.get("timerEnd"));
 if (savedEnd && savedEnd > Date.now()) startTimer(savedEnd);
 else if (savedEnd) { ls.del("timerEnd"); go("check"); }

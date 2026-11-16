@@ -24,6 +24,15 @@
   </div>
 
   <div class="card">
+    <h2 id="m-name">Bu ay</h2>
+    <div class="today">
+      <div class="stat"><b id="m-smoked">0</b><span>sigara</span></div>
+      <div class="stat"><b id="m-debt">0 ₺</b><span>sana borcu</span></div>
+      <div class="stat good"><b id="m-passed">0</b><span>vazgeçti</span></div>
+    </div>
+  </div>
+
+  <div class="card">
     <h2>Son 7 gün</h2>
     <div class="legend"><span><i style="background:var(--no)"></i>içilen</span><span><i style="background:var(--accent)"></i>vazgeçilen</span></div>
     <div class="days" id="days"></div>
@@ -38,26 +47,32 @@
 </div>
 
 <script type="module">
-import { watchRecent, dayKey } from "./firebase.js";
+import { watchRecent, countWhere, dayKey, monthKey } from "./firebase.js";
 
 const $ = id => document.getElementById(id);
+const BORC_TL = 1;
+const MONTHS = ["Ocak","Şubat","Mart","Nisan","Mayıs","Haziran","Temmuz","Ağustos","Eylül","Ekim","Kasım","Aralık"];
 const LABEL = { craving:"Düğmeye bastı", wait:"Beklemeye başladı", passed:"Vazgeçti", smoked:"Sigara içti" };
 const VIA = { manual:" (kendisi ekledi)", "after-wait":" (5 dk bekledikten sonra)" };
-let events = [];
 
-function render(){
-  const todayKey = dayKey(Date.now());
-  const c = (key,t) => events.filter(e => e.day === key && e.type === t).length;
-  $("f-craving").textContent = c(todayKey,"craving");
-  $("f-passed").textContent  = c(todayKey,"passed");
-  $("f-smoked").textContent  = c(todayKey,"smoked");
+async function renderCounts(){
+  const now = new Date(), today = dayKey(now.getTime()), month = monthKey(now.getTime());
+  const days = [...Array(7)].map((_,k) => new Date(now.getFullYear(), now.getMonth(), now.getDate()-k));
+  const [tc, tp, ts, ms, mp, ...perDay] = await Promise.all([
+    countWhere({ day: today, type: "craving" }),
+    countWhere({ day: today, type: "passed" }),
+    countWhere({ day: today, type: "smoked" }),
+    countWhere({ month, type: "smoked" }),
+    countWhere({ month, type: "passed" }),
+    ...days.flatMap(d => [countWhere({ day: dayKey(d.getTime()), type: "smoked" }), countWhere({ day: dayKey(d.getTime()), type: "passed" })]),
+  ]);
+  $("f-craving").textContent = tc; $("f-passed").textContent = tp; $("f-smoked").textContent = ts;
+  $("m-name").textContent = MONTHS[now.getMonth()] + " ayı";
+  $("m-smoked").textContent = ms;
+  $("m-debt").textContent = (ms * BORC_TL).toLocaleString("tr-TR") + " ₺";
+  $("m-passed").textContent = mp;
 
-  const now = new Date();
-  const rows = [...Array(7)].map((_,k) => {
-    const d = new Date(now.getFullYear(), now.getMonth(), now.getDate()-k);
-    const key = dayKey(d.getTime());
-    return { d, s:c(key,"smoked"), p:c(key,"passed") };
-  });
+  const rows = days.map((d,k) => ({ d, s: perDay[2*k], p: perDay[2*k+1] }));
   const max = Math.max(1, ...rows.map(r => r.s + r.p));
   $("days").replaceChildren(...rows.map((r,idx) => {
     const row = document.createElement("div"); row.className = "day";
@@ -70,14 +85,16 @@ function render(){
     const n = document.createElement("span"); n.className = "n"; n.textContent = `${r.s} içti · ${r.p} vazgeçti`;
     row.append(lab,bar,n); return row;
   }));
+}
 
-  const feed = $("feed"), recent = events.slice(0,30);
-  if (!recent.length) {
+function renderFeed(events){
+  const feed = $("feed"), todayKey = dayKey(Date.now());
+  if (!events.length) {
     const li = document.createElement("li"); li.className = "empty";
     li.textContent = "Henüz hareket yok. Annen düğmeye bastığında burada görünecek.";
     feed.replaceChildren(li); return;
   }
-  feed.replaceChildren(...recent.map(e => {
+  feed.replaceChildren(...events.map(e => {
     const li = document.createElement("li");
     const t = document.createElement("time"); const d = new Date(e.ts);
     t.textContent = (e.day === todayKey ? "" : d.toLocaleDateString("tr-TR",{day:"numeric",month:"short"}) + " ")
@@ -88,10 +105,12 @@ function render(){
   }));
 }
 
-watchRecent(evs => { events = evs; render(); }, () => {
-  $("feed").innerHTML = '<li class="empty">Kayıtlar yüklenemedi. Firebase kurallarının yüklendiğinden emin ol.</li>';
-});
-setInterval(render, 60000);
+const fail = () => { $("feed").innerHTML = '<li class="empty">Kayıtlar yüklenemedi. Firebase kurallarının güncel olduğundan emin ol.</li>'; };
+let debounce = null;
+watchRecent(30, evs => {
+  renderFeed(evs);
+  clearTimeout(debounce); debounce = setTimeout(() => renderCounts().catch(fail), 800);
+}, fail);
 </script>
 </body>
 </html>
