@@ -64,9 +64,15 @@
       <p class="sub">İstersen uygulamadan çıkabilirsin. 5 dakika sonra tekrar açınca sana soracağım.</p>
     </div>
     <div class="panel game" id="p-game" hidden>
-      <div class="gamehead"><span>Kırılan sigara: <b id="score">0</b></span></div>
+      <div class="gamehead">
+        <span><b id="g-score">0</b> puan</span>
+        <span class="lvl" id="g-level">Seviye 1</span>
+        <button class="mute" id="g-mute" aria-label="Sesi kapat">🔊</button>
+      </div>
+      <div class="lungbar"><span>🫁 Ciğer temizliği</span><div class="lb"><i id="g-lungs"></i></div></div>
       <canvas id="cv" aria-label="Hedef oyunu: kayan sigaralara dokun, topu at ve kır"></canvas>
-      <p class="note">Kayan sigaralara dokun. Top gidip sigarayı kırar.</p>
+      <p class="note" id="g-stats"></p>
+      <p class="note">Sigaralara dokun, kır. Kırmızı paketler bonus! 🍎💧🥕 gibi sağlıklı şeyleri vurma.</p>
     </div>
     <div class="timerbar">
       <span class="t" id="timer">5:00</span>
@@ -266,115 +272,270 @@ document.querySelectorAll(".seg button").forEach(b => b.onclick = () => setMode(
 // ---------- oyun: lunapark hedef atışı ----------
 const game = (() => {
   const cv = $("cv"), ctx = cv.getContext("2d");
-  let W = 0, H = 0, raf = null, last = 0, broken = 0;
-  let targets = [], balls = [], pieces = [], pops = [];
-  const LANES = [0.26, 0.47, 0.68];
+  let W = 0, H = 0, raf = null, last = 0, time = 0;
+  let items = [], balls = [], pieces = [], parts = [], pops = [], banners = [];
+  let score = 0, broken = 0, combo = 0, lastHit = -9, level = 1, lungs = 0, shake = 0;
+  let best = Number(ls.get("gameBest")) || 0, total = Number(ls.get("gameTotal")) || 0;
+  let muted = ls.get("gameMuted") === "1";
+  const LANES = [0.24, 0.46, 0.68];
+  const HEALTHY = ["🍎", "💧", "🥕", "🍌", "🍊"];
+  const NICE = ["Kırıldı!", "Bir sigara eksik!", "Süpersin!", "Pat!", "Harika atış!", "Tam isabet!"];
   const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
   let C = {};
 
+  // ---- sesler (telefonda dokunduktan sonra çalar) ----
+  let ac = null;
+  function beep(freq, dur = 0.08, type = "sine", vol = 0.12, slide = 0, delay = 0){
+    if (muted) return;
+    try {
+      ac = ac || new (window.AudioContext || window.webkitAudioContext)();
+      const t = ac.currentTime + delay, o = ac.createOscillator(), g = ac.createGain();
+      o.type = type; o.frequency.setValueAtTime(freq, t);
+      if (slide) o.frequency.exponentialRampToValueAtTime(Math.max(40, freq + slide), t + dur);
+      g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+      o.connect(g).connect(ac.destination); o.start(t); o.stop(t + dur + 0.02);
+    } catch {}
+  }
+  const sfx = {
+    throw: () => beep(420, 0.07, "triangle", 0.05, 260),
+    hit:   c => { beep(200 + c*50, 0.12, "square", 0.07, -140); beep(700 + c*120, 0.09, "sine", 0.07, 0, 0.03); },
+    pack:  () => [523, 659, 784, 1047].forEach((f, i) => beep(f, 0.11, "triangle", 0.09, 0, i*0.06)),
+    bad:   () => beep(190, 0.3, "sawtooth", 0.06, -90),
+    miss:  () => beep(130, 0.07, "sine", 0.05),
+    level: () => [392, 523, 659, 784, 1047].forEach((f, i) => beep(f, 0.13, "triangle", 0.09, 0, i*0.08)),
+  };
+
+  // ---- yardımcılar ----
+  const laneY = l => H*LANES[l];
+  const itCy = it => laneY(it.lane) + 8 - it.h/2;
+  const speedMul = () => 1 + (level - 1)*0.15;
   function resize(){
     const r = cv.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
     W = r.width; H = r.height;
     cv.width = Math.round(W*dpr); cv.height = Math.round(H*dpr);
-    ctx.setTransform(dpr,0,0,dpr,0,0);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   }
   function spawn(lane, x){
-    const dir = lane === 1 ? -1 : 1;
-    const speed = (45 + Math.random()*35) * (1 + Math.min(broken, 30)/30);
-    targets.push({ lane, dir, speed, w: 84, h: 16, x: x ?? (dir > 0 ? -80 : W + 80) });
+    const dir = lane === 1 ? -1 : 1, r = Math.random();
+    let kind = r < 0.08 ? "pack" : r < 0.22 ? "healthy" : "cig";
+    if (level < 2 && kind === "healthy" && Math.random() < 0.5) kind = "cig";
+    const base = (45 + Math.random()*35)*speedMul();
+    const it = { lane, dir, kind, speed: kind === "pack" ? base*1.6 : base, phase: Math.random()*6 };
+    if (kind === "cig") { it.w = 84; it.h = 16; }
+    else if (kind === "pack") { it.w = 40; it.h = 50; }
+    else { it.w = 40; it.h = 40; it.emoji = HEALTHY[Math.floor(Math.random()*HEALTHY.length)]; }
+    it.x = x ?? (dir > 0 ? -it.w - 20 : W + 20);
+    items.push(it);
   }
   function reset(){
-    targets = []; balls = []; pieces = []; pops = [];
-    for (let l = 0; l < 3; l++) { spawn(l, W*0.1 + Math.random()*W*0.2); spawn(l, W*0.6 + Math.random()*W*0.2); }
+    items = []; balls = []; pieces = []; parts = []; pops = []; banners = [];
+    for (let l = 0; l < 3; l++) { spawn(l, W*0.08 + Math.random()*W*0.2); spawn(l, W*0.58 + Math.random()*W*0.2); }
+    items.forEach(i => { if (i.kind === "healthy") { i.kind = "cig"; i.w = 84; i.h = 16; } });
   }
-  function drawCig(x, y, w, h, part){   // part: "all" | "filter" | "paper"
-    const fw = w*0.3;
-    if (part !== "paper") {
-      ctx.fillStyle = "#D98A3D"; ctx.fillRect(x, y-h/2, fw, h);
-      ctx.fillStyle = "rgba(120,60,10,.35)"; for (let i = 4; i < fw; i += 6) ctx.fillRect(x+i, y-h/2+3, 2, 2);
-    }
-    if (part !== "filter") {
-      ctx.fillStyle = "#F7F5F0"; ctx.fillRect(x+fw, y-h/2, w-fw, h);
-      ctx.strokeStyle = "rgba(0,0,0,.2)"; ctx.lineWidth = 1; ctx.strokeRect(x+fw+.5, y-h/2+.5, w-fw-1, h-1);
-      ctx.fillStyle = "#8A8A8A"; ctx.fillRect(x+w-6, y-h/2, 6, h);
+  function burst(x, y, colors, n, sp = 160, kind = "dot"){
+    for (let i = 0; i < n; i++) {
+      const a = Math.random()*Math.PI*2, v = sp*(0.4 + Math.random()*0.8);
+      parts.push({ x, y, vx: Math.cos(a)*v, vy: Math.sin(a)*v - 60, life: 0.7 + Math.random()*0.6,
+        color: colors[i % colors.length], size: kind === "conf" ? 5 + Math.random()*4 : 2 + Math.random()*3, kind, r: Math.random()*6, vr: (Math.random() - .5)*12 });
     }
   }
+  const pop = (x, y, txt, tone = "good", life = 1) => pops.push({ x, y, txt, tone, life, max: life });
+  const banner = txt => banners.push({ txt, life: 2.2 });
+  const CONFETTI = () => [C.warm, C.accent, C.no, "#F2C94C", "#6FA8DC", "#B48EF0"];
+
+  function hud(){
+    $("g-score").textContent = score;
+    $("g-level").textContent = "Seviye " + level;
+    $("g-lungs").style.width = lungs + "%";
+    $("g-stats").textContent = `Bu oyunda kırılan: ${broken} · En iyi puan: ${best} · Toplam kırdığın: ${total}`;
+    $("g-mute").textContent = muted ? "🔇" : "🔊";
+    $("g-mute").setAttribute("aria-label", muted ? "Sesi aç" : "Sesi kapat");
+  }
+
+  function onHit(it){
+    items = items.filter(i => i !== it);
+    const cx = it.x + it.w/2, cy = itCy(it);
+    if (it.kind === "healthy") {
+      combo = 0; shake = 7; sfx.bad();
+      pop(cx, cy - 22, "Onu vurma, sağlıklı! " + it.emoji, "bad", 1.5);
+      burst(cx, cy, ["#7BC47F", "#E25C4A", "#F2C94C"], 12);
+      try { navigator.vibrate && navigator.vibrate([40, 40, 40]); } catch {}
+      hud(); return;
+    }
+    combo = (time - lastHit < 1.6) ? Math.min(combo + 1, 5) : 1; lastHit = time;
+    const pts = (it.kind === "pack" ? 50 : 10)*combo;
+    const n = it.kind === "pack" ? 5 : 1;
+    score += pts; broken += n; total += n;
+    lungs = Math.min(100, lungs + (it.kind === "pack" ? 20 : 6));
+    if (it.kind === "pack") {
+      shake = 9; sfx.pack();
+      for (let k = 0; k < 4; k++) pieces.push({ part: "all", x: cx - 25, y: cy, w: 50, h: 10, vx: (Math.random() - .5)*260, vy: -180 - Math.random()*120, r: 0, vr: (Math.random() - .5)*14 });
+      burst(cx, cy, CONFETTI(), 28, 240, "conf");
+      pop(cx, cy - 34, `Paket patladı! +${pts}`, "gold", 1.4);
+    } else {
+      sfx.hit(combo);
+      const y = laneY(it.lane);
+      pieces.push({ part: "filter", x: it.x, y, w: it.w, h: it.h, vx: -70 - Math.random()*50, vy: -150, r: 0, vr: -5 - Math.random()*3 });
+      pieces.push({ part: "paper",  x: it.x, y, w: it.w, h: it.h, vx:  70 + Math.random()*50, vy: -170, r: 0, vr:  5 + Math.random()*3 });
+      burst(cx, y, ["#C9A27A", "#8A6A4A", "#F7F5F0", "#D98A3D"], 14);
+      pop(cx, cy - 20, combo > 1 ? `${combo}x Kombo! +${pts}` : `${NICE[Math.floor(Math.random()*NICE.length)]} +${pts}`, combo > 2 ? "gold" : "good");
+    }
+    try { navigator.vibrate && navigator.vibrate(25); } catch {}
+    if (lungs >= 100) {
+      lungs = 0; score += 100; sfx.level();
+      banner("Ciğerlerin nefes aldı! 🫁 +100");
+      burst(W/2, H*0.4, CONFETTI(), 60, 320, "conf");
+    }
+    const nl = 1 + Math.floor(broken/12);
+    if (nl > level) { level = nl; banner(`Seviye ${level}! Hızlanıyor 🚀`); sfx.level(); }
+    if (score > best) { best = score; ls.set("gameBest", String(best)); }
+    ls.set("gameTotal", String(total));
+    hud();
+  }
+
   function update(dt){
-    for (const t of targets) t.x += t.dir * t.speed * dt;
-    targets = targets.filter(t => t.x > -120 && t.x < W + 120);
-    for (let l = 0; l < 3; l++) {
-      const n = targets.filter(t => t.lane === l).length;
-      if (n < 2 && Math.random() < dt*1.2) spawn(l);
-    }
+    time += dt;
+    for (const t of items) t.x += t.dir*t.speed*dt;
+    items = items.filter(t => t.x > -140 && t.x < W + 140);
+    const cap = level >= 3 ? 3 : 2;
+    for (let l = 0; l < 3; l++) if (items.filter(t => t.lane === l).length < cap && Math.random() < dt*1.3) spawn(l);
+
     for (const b of balls) {
-      b.t += dt / 0.28;
+      b.t += dt/0.26;
+      const t = Math.min(b.t, 1);
+      b.x = b.sx + (b.tx - b.sx)*t; b.y = b.sy + (b.ty - b.sy)*t - Math.sin(t*Math.PI)*36;
+      b.trail.push([b.x, b.y]); if (b.trail.length > 7) b.trail.shift();
       if (b.t >= 1 && !b.done) {
         b.done = true;
-        const hit = targets.find(t => {
-          const y = H*LANES[t.lane];
-          return b.tx > t.x - 14 && b.tx < t.x + t.w + 14 && Math.abs(b.ty - y) < t.h/2 + 16;
-        });
-        if (hit) {
-          const y = H*LANES[hit.lane];
-          targets = targets.filter(t => t !== hit);
-          broken++; $("score").textContent = broken;
-          pieces.push({ part:"filter", x: hit.x, y, w: hit.w, h: hit.h, vx: -60 - Math.random()*40, vy: -140, r: 0, vr: -4 - Math.random()*3 });
-          pieces.push({ part:"paper",  x: hit.x, y, w: hit.w, h: hit.h, vx:  60 + Math.random()*40, vy: -160, r: 0, vr:  4 + Math.random()*3 });
-          const msgs = ["Kırıldı!", "Bir sigara eksik!", "Süpersin!", "Pat!", "Harika atış!"];
-          pops.push({ x: b.tx, y: b.ty - 12, txt: msgs[Math.floor(Math.random()*msgs.length)], life: 1 });
-          try { navigator.vibrate && navigator.vibrate(30); } catch {}
-        } else pops.push({ x: b.tx, y: b.ty - 12, txt: "Iska", life: .6, miss: true });
+        const hit = items.find(it => b.tx > it.x - 12 && b.tx < it.x + it.w + 12 && Math.abs(b.ty - itCy(it)) < it.h/2 + 16);
+        if (hit) onHit(hit);
+        else { combo = 0; sfx.miss(); pop(b.tx, b.ty - 12, "Iska", "miss", .6); burst(b.tx, b.ty, [C.muted], 4, 60); }
       }
     }
-    balls = balls.filter(b => b.t < 1.25);
-    for (const p of pieces) { p.vy += 520*dt; p.x += p.vx*dt; p.y += p.vy*dt; p.r += p.vr*dt; }
+    balls = balls.filter(b => b.t < 1.15);
+    for (const p of pieces) { p.vy += 560*dt; p.x += p.vx*dt; p.y += p.vy*dt; p.r += p.vr*dt; }
     pieces = pieces.filter(p => p.y < H + 60);
-    for (const p of pops) { p.life -= dt; p.y -= 30*dt; }
+    for (const p of parts) { p.vy += 420*dt; p.x += p.vx*dt; p.y += p.vy*dt; p.r += p.vr*dt; p.life -= dt; }
+    parts = parts.filter(p => p.life > 0);
+    for (const p of pops) { p.life -= dt; p.y -= 34*dt; }
     pops = pops.filter(p => p.life > 0);
+    for (const b of banners) b.life -= dt;
+    banners = banners.filter(b => b.life > 0);
+    shake = Math.max(0, shake - dt*30);
+  }
+
+  // ---- çizim ----
+  function drawCig(x, y, w, h, part){
+    const fw = w*0.3;
+    if (part !== "paper") {
+      ctx.fillStyle = "#D98A3D"; ctx.fillRect(x, y - h/2, fw, h);
+      ctx.fillStyle = "rgba(120,60,10,.35)"; for (let i = 4; i < fw; i += 6) ctx.fillRect(x + i, y - h/2 + 3, 2, 2);
+    }
+    if (part !== "filter") {
+      ctx.fillStyle = "#F7F5F0"; ctx.fillRect(x + fw, y - h/2, w - fw, h);
+      ctx.strokeStyle = "rgba(0,0,0,.2)"; ctx.lineWidth = 1; ctx.strokeRect(x + fw + .5, y - h/2 + .5, w - fw - 1, h - 1);
+      ctx.fillStyle = "#8A8A8A"; ctx.fillRect(x + w - 6, y - h/2, 6, h);
+    }
+  }
+  function drawPack(x, cy, w, h, glow){
+    if (glow) { ctx.shadowColor = "#F2C94C"; ctx.shadowBlur = 12 + Math.sin(time*8)*6; }
+    ctx.fillStyle = "#FFFFFF"; ctx.fillRect(x, cy - h/2, w, h);
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = "#C23B2E"; ctx.fillRect(x, cy - h/2, w, h*0.42);
+    ctx.strokeStyle = "rgba(0,0,0,.25)"; ctx.lineWidth = 1; ctx.strokeRect(x + .5, cy - h/2 + .5, w - 1, h - 1);
+    ctx.fillStyle = "#222"; ctx.font = "700 8px Nunito, sans-serif"; ctx.textAlign = "center";
+    ctx.fillText("SİGARA", x + w/2, cy + 8);
+    ctx.fillStyle = "#F2C94C"; ctx.font = "700 9px Nunito, sans-serif"; ctx.fillText("BONUS", x + w/2, cy - h/2 + 13);
   }
   function draw(){
-    ctx.clearRect(0,0,W,H);
-    // lunapark tentesi
+    ctx.save();
+    ctx.clearRect(0, 0, W, H);
+    if (shake > 0) ctx.translate((Math.random() - .5)*shake, (Math.random() - .5)*shake);
+    // tente ve yanıp sönen ampuller
     const sw = 28;
     for (let i = 0, x = 0; x < W; i++, x += sw) {
       ctx.fillStyle = i % 2 ? C.surface : C.no;
-      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x+sw, 0); ctx.lineTo(x+sw, 18);
-      ctx.arc(x+sw/2, 18, sw/2, 0, Math.PI); ctx.closePath(); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x + sw, 0); ctx.lineTo(x + sw, 18);
+      ctx.arc(x + sw/2, 18, sw/2, 0, Math.PI); ctx.closePath(); ctx.fill();
+      const on = (i + Math.floor(time*3)) % 2 === 0;
+      ctx.fillStyle = on ? "#FFD95A" : "rgba(255,217,90,.3)";
+      ctx.beginPath(); ctx.arc(x + sw/2, 36, 3, 0, Math.PI*2); ctx.fill();
     }
     // raflar
     ctx.fillStyle = C.line;
-    for (const f of LANES) ctx.fillRect(8, H*f + 10, W-16, 5);
-    for (const t of targets) drawCig(t.x, H*LANES[t.lane], t.w, t.h, "all");
+    for (const f of LANES) ctx.fillRect(8, H*f + 10, W - 16, 5);
+    // hedefler
+    for (const it of items) {
+      const cy = itCy(it);
+      if (it.kind === "cig") {
+        ctx.save(); ctx.translate(it.x + it.w/2, cy); ctx.rotate(Math.sin(time*3 + it.phase)*0.05);
+        drawCig(-it.w/2, 0, it.w, it.h, "all"); ctx.restore();
+      } else if (it.kind === "pack") drawPack(it.x, cy, it.w, it.h, true);
+      else {
+        ctx.font = "32px system-ui, sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+        ctx.fillText(it.emoji, it.x + it.w/2, cy + Math.sin(time*4 + it.phase)*2);
+        ctx.textBaseline = "alphabetic";
+      }
+    }
     for (const p of pieces) {
       ctx.save(); ctx.translate(p.x + p.w/2, p.y); ctx.rotate(p.r);
       drawCig(-p.w/2, 0, p.w, p.h, p.part); ctx.restore();
     }
-    // atılacak top
-    ctx.fillStyle = C.warm; ctx.beginPath(); ctx.arc(W/2, H-18, 11, 0, Math.PI*2); ctx.fill();
-    for (const b of balls) {
-      const t = Math.min(b.t, 1), x = b.sx + (b.tx-b.sx)*t, y = b.sy + (b.ty-b.sy)*t - Math.sin(t*Math.PI)*30;
-      ctx.fillStyle = C.warm; ctx.beginPath(); ctx.arc(x, y, 10 - 3*t, 0, Math.PI*2); ctx.fill();
+    for (const p of parts) {
+      ctx.globalAlpha = Math.min(1, p.life*1.6); ctx.fillStyle = p.color;
+      if (p.kind === "conf") { ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.r); ctx.fillRect(-p.size/2, -p.size/4, p.size, p.size/2); ctx.restore(); }
+      else { ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, Math.PI*2); ctx.fill(); }
     }
-    ctx.textAlign = "center"; ctx.font = "600 20px Fredoka, Nunito, sans-serif";
-    for (const p of pops) { ctx.globalAlpha = Math.max(0, Math.min(1, p.life*1.5)); ctx.fillStyle = p.miss ? C.muted : C.accent; ctx.fillText(p.txt, p.x, p.y); }
     ctx.globalAlpha = 1;
+    // atış yeri
+    ctx.strokeStyle = C.line; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(W/2, H - 18, 16, 0, Math.PI*2); ctx.stroke();
+    ctx.fillStyle = C.warm; ctx.beginPath(); ctx.arc(W/2, H - 18, 11, 0, Math.PI*2); ctx.fill();
+    for (const b of balls) {
+      b.trail.forEach(([x, y], i) => { ctx.globalAlpha = (i + 1)/b.trail.length*0.35; ctx.fillStyle = C.warm; ctx.beginPath(); ctx.arc(x, y, 7, 0, Math.PI*2); ctx.fill(); });
+      ctx.globalAlpha = 1; ctx.fillStyle = C.warm; ctx.beginPath(); ctx.arc(b.x, b.y, 10 - 3*Math.min(b.t, 1), 0, Math.PI*2); ctx.fill();
+    }
+    // yazılar
+    ctx.textAlign = "center"; ctx.lineJoin = "round";
+    for (const p of pops) {
+      const k = p.life/p.max;
+      ctx.globalAlpha = Math.min(1, k*2);
+      ctx.font = `600 ${p.tone === "gold" ? 22 : 19}px Fredoka, Nunito, sans-serif`;
+      const half = ctx.measureText(p.txt).width/2 + 6;
+      const x = Math.max(half, Math.min(W - half, p.x));
+      ctx.strokeStyle = C.bg; ctx.lineWidth = 4; ctx.strokeText(p.txt, x, p.y);
+      ctx.fillStyle = p.tone === "bad" ? C.no : p.tone === "miss" ? C.muted : p.tone === "gold" ? "#C98A00" : C.accent;
+      ctx.fillText(p.txt, x, p.y);
+    }
+    ctx.globalAlpha = 1;
+    for (const b of banners) {
+      const a = Math.min(1, b.life*2, (2.2 - b.life)*6);
+      ctx.globalAlpha = a;
+      ctx.font = "600 22px Fredoka, Nunito, sans-serif";
+      const tw = Math.min(W - 24, ctx.measureText(b.txt).width + 32);
+      ctx.fillStyle = C.ink; ctx.beginPath(); ctx.roundRect ? ctx.roundRect(W/2 - tw/2, H*0.36, tw, 44, 22) : ctx.rect(W/2 - tw/2, H*0.36, tw, 44); ctx.fill();
+      ctx.fillStyle = C.bg; ctx.fillText(b.txt, W/2, H*0.36 + 29, W - 40);
+    }
+    ctx.globalAlpha = 1;
+    ctx.restore();
   }
   function loop(ts){
-    const dt = Math.min(0.05, (ts - (last || ts)) / 1000); last = ts;
+    const dt = Math.min(0.05, (ts - (last || ts))/1000); last = ts;
     update(dt); draw();
     raf = requestAnimationFrame(loop);
   }
   cv.addEventListener("pointerdown", e => {
     const r = cv.getBoundingClientRect();
-    balls.push({ sx: W/2, sy: H-18, tx: e.clientX - r.left, ty: e.clientY - r.top, t: 0 });
+    balls.push({ sx: W/2, sy: H - 18, tx: e.clientX - r.left, ty: e.clientY - r.top, t: 0, x: W/2, y: H - 18, trail: [] });
+    sfx.throw();
   });
+  $("g-mute").onclick = () => { muted = !muted; ls.set("gameMuted", muted ? "1" : "0"); hud(); };
   window.addEventListener("resize", () => { if (raf) resize(); });
   return {
     start(){
       if (raf) return;
-      C = { surface: css("--surface"), no: css("--no"), line: css("--line"), warm: css("--warm"), accent: css("--accent"), muted: css("--muted") };
-      resize(); if (!targets.length) reset();
-      last = 0; raf = requestAnimationFrame(loop);
+      C = { surface: css("--surface"), no: css("--no"), line: css("--line"), warm: css("--warm"), accent: css("--accent"), muted: css("--muted"), bg: css("--bg"), ink: css("--ink") };
+      resize(); if (!items.length) reset();
+      hud(); last = 0; raf = requestAnimationFrame(loop);
     },
     stop(){ if (raf) cancelAnimationFrame(raf); raf = null; }
   };
