@@ -1,0 +1,20 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Kayıtlar sadece eklenebilir; değiştirilemez, silinemez.
+    match /events/{id} {
+      allow read: if true;
+      allow create: if request.resource.data.keys().hasOnly(['type', 'ts', 'day', 'via'])
+        && request.resource.data.type in ['craving', 'wait', 'passed', 'smoked']
+        && request.resource.data.ts is number
+        && request.resource.data.day is string
+        && request.resource.data.day.size() == 10
+        && (!('via' in request.resource.data) || request.resource.data.via in ['ask', 'manual', 'after-wait']);
+      allow update, delete: if false;
+    }
+    // Başka hiçbir şeye izin yok.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Annemin Takibi</title>
+<meta name="robots" content="noindex">
+<meta name="apple-mobile-web-app-title" content="Takip">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600&family=Nunito:wght@400;600;700;800&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+  <h1 class="msg" style="text-align:center">Annemin takibi</h1>
+
+  <div class="card">
+    <h2>Bugün</h2>
+    <div class="today">
+      <div class="stat"><b id="f-craving">0</b><span>düğmeye bastı</span></div>
+      <div class="stat good"><b id="f-passed">0</b><span>vazgeçti</span></div>
+      <div class="stat"><b id="f-smoked">0</b><span>içti</span></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Son 7 gün</h2>
+    <div class="legend"><span><i style="background:var(--no)"></i>içilen</span><span><i style="background:var(--accent)"></i>vazgeçilen</span></div>
+    <div class="days" id="days"></div>
+  </div>
+
+  <div class="card">
+    <h2>Son hareketler</h2>
+    <ul class="feed" id="feed"><li class="empty">Yükleniyor…</li></ul>
+  </div>
+
+  <p class="note">Sayılar yalnızca annenin sitede bastığı düğmelerden gelir. Sayfa kendiliğinden güncellenir.</p>
+</div>
+
+<script type="module">
+import { watchRecent, dayKey } from "./firebase.js";
+
+const $ = id => document.getElementById(id);
+const LABEL = { craving:"Düğmeye bastı", wait:"Beklemeye başladı", passed:"Vazgeçti", smoked:"Sigara içti" };
+const VIA = { manual:" (kendisi ekledi)", "after-wait":" (5 dk bekledikten sonra)" };
+let events = [];
+
+function render(){
+  const todayKey = dayKey(Date.now());
+  const c = (key,t) => events.filter(e => e.day === key && e.type === t).length;
+  $("f-craving").textContent = c(todayKey,"craving");
+  $("f-passed").textContent  = c(todayKey,"passed");
+  $("f-smoked").textContent  = c(todayKey,"smoked");
+
+  const now = new Date();
+  const rows = [...Array(7)].map((_,k) => {
+    const d = new Date(now.getFullYear(), now.getMonth(), now.getDate()-k);
+    const key = dayKey(d.getTime());
+    return { d, s:c(key,"smoked"), p:c(key,"passed") };
+  });
+  const max = Math.max(1, ...rows.map(r => r.s + r.p));
+  $("days").replaceChildren(...rows.map((r,idx) => {
+    const row = document.createElement("div"); row.className = "day";
+    const lab = document.createElement("span");
+    lab.textContent = idx === 0 ? "Bugün" : r.d.toLocaleDateString("tr-TR",{weekday:"short",day:"numeric"});
+    const bar = document.createElement("div"); bar.className = "bar";
+    const s = document.createElement("i"); s.className = "s"; s.style.width = (100*r.s/max) + "%";
+    const p = document.createElement("i"); p.className = "p"; p.style.width = (100*r.p/max) + "%";
+    bar.append(s,p);
+    const n = document.createElement("span"); n.className = "n"; n.textContent = `${r.s} içti · ${r.p} vazgeçti`;
+    row.append(lab,bar,n); return row;
+  }));
+
+  const feed = $("feed"), recent = events.slice(0,30);
+  if (!recent.length) {
+    const li = document.createElement("li"); li.className = "empty";
+    li.textContent = "Henüz hareket yok. Annen düğmeye bastığında burada görünecek.";
+    feed.replaceChildren(li); return;
+  }
+  feed.replaceChildren(...recent.map(e => {
+    const li = document.createElement("li");
+    const t = document.createElement("time"); const d = new Date(e.ts);
+    t.textContent = (e.day === todayKey ? "" : d.toLocaleDateString("tr-TR",{day:"numeric",month:"short"}) + " ")
+                  + d.toLocaleTimeString("tr-TR",{hour:"2-digit",minute:"2-digit"});
+    const pill = document.createElement("span"); pill.className = "pill " + e.type;
+    pill.textContent = (LABEL[e.type] || e.type) + (e.type === "smoked" && VIA[e.via] ? VIA[e.via] : "");
+    li.append(t,pill); return li;
+  }));
+}
+
+watchRecent(evs => { events = evs; render(); }, () => {
+  $("feed").innerHTML = '<li class="empty">Kayıtlar yüklenemedi. Firebase kurallarının yüklendiğinden emin ol.</li>';
+});
+setInterval(render, 60000);
+</script>
+</body>
+</html>

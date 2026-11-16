@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Canım Çekiyor</title>
+<meta name="robots" content="noindex">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Canım Çekiyor">
+<meta name="theme-color" content="#EEF5F3">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600&family=Nunito:wght@400;600;700;800&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+
+  <!-- ANA SAYFA -->
+  <section class="screen" id="s-home">
+    <div class="cat" data-cat="home"></div>
+    <h1 class="msg">Merhaba anneciğim</h1>
+    <p class="sub">Sigara isteği gelince bu düğmeye bas. Birlikte bekleyelim.</p>
+    <button class="big" id="b-crave">Canım çekiyor</button>
+    <div class="today">
+      <div class="stat"><b id="t-smoked">0</b><span>bugün içilen</span></div>
+      <div class="stat good"><b id="t-passed">0</b><span>bugün vazgeçtin</span></div>
+    </div>
+    <button class="small-link" id="b-manual">Düğmeye basmadan bir sigara içtim, ekle</button>
+    <p class="status" id="status"></p>
+  </section>
+
+  <!-- CANIM ÇEKİYOR -->
+  <section class="screen" id="s-ask" hidden>
+    <div class="cat" data-cat="ask"></div>
+    <h1 class="msg">Canın çekti, biliyorum.<br>Benim için 5 dakika bekler misin?</h1>
+    <p class="sub">İstek genelde birkaç dakikada geçer.</p>
+    <div class="actions">
+      <button class="btn yes" id="b-wait">Tamam, 5 dakika bekliyorum</button>
+      <button class="btn no" id="b-smoke-now">İçeceğim</button>
+    </div>
+  </section>
+
+  <!-- BEKLEME -->
+  <section class="screen" id="s-wait" hidden>
+    <div class="cat small" data-cat="wait"></div>
+    <h1 class="msg">Harikasın! 5 dakika bekliyoruz.</h1>
+    <div class="seg" role="group" aria-label="Beklerken ne yapmak istersin">
+      <button aria-pressed="true" data-mode="tips">Sadece bekle</button>
+      <button aria-pressed="false" data-mode="game">Oyun</button>
+    </div>
+    <div class="panel" id="p-tips">
+      <p class="tip" id="tip"></p>
+      <p class="sub">İstersen uygulamadan çıkabilirsin. 5 dakika sonra tekrar açınca sana soracağım.</p>
+    </div>
+    <div class="panel" id="p-game" hidden>
+      <div class="gamehead"><span>Puan: <b id="score">0</b></span><button class="small-link" id="b-shuffle" style="padding:0">Karıştır</button></div>
+      <div class="board" id="board"></div>
+      <p class="note">Yan yana iki meyveye dokun, yerlerini değiştir. 3 aynı meyveyi yan yana getir.</p>
+    </div>
+    <div class="timerbar">
+      <span class="t" id="timer">5:00</span>
+      <div class="prog"><i id="prog"></i></div>
+    </div>
+  </section>
+
+  <!-- GEÇTİ Mİ -->
+  <section class="screen" id="s-check" hidden>
+    <div class="cat" data-cat="check"></div>
+    <h1 class="msg">5 dakika doldu!<br>İsteğin geçti mi?</h1>
+    <div class="actions">
+      <button class="btn yes" id="b-passed">Geçti</button>
+      <button class="btn no" id="b-still">Hâlâ istiyorum</button>
+    </div>
+  </section>
+
+  <!-- AFERİN -->
+  <section class="screen" id="s-passed" hidden>
+    <div class="cat" data-cat="passed"></div>
+    <h1 class="msg">Aferin anneciğim!<br>Seninle gurur duyuyorum.</h1>
+    <p class="sub" id="passed-sub"></p>
+    <div class="actions"><button class="btn plain" data-go="home">Ana sayfaya dön</button></div>
+  </section>
+
+  <!-- TAMAM İÇ -->
+  <section class="screen" id="s-smoked" hidden>
+    <div class="cat" data-cat="smoked"></div>
+    <h1 class="msg">Tamam, iç.<br>Sonraki sefer yine buradayım.</h1>
+    <p class="sub">Kızgın değilim. Her deneme bir adım.</p>
+    <div class="actions"><button class="btn plain" data-go="home">Ana sayfaya dön</button></div>
+  </section>
+
+</div>
+
+<script type="module">
+// Firebase sonradan yüklenir; yüklenemese bile düğmeler çalışır.
+let fb = null; const pending = [];
+
+// Kedi fotoğrafları: images klasörüne koyduğun dosyanın adını yaz (ör. "images/mutsuz.jpg").
+// Boş bırakılan ekranda kedi emojisi görünür.
+const PHOTOS = { home:"", ask:"", wait:"", check:"", passed:"", smoked:"" };
+const CATS   = { home:"😺", ask:"😿", wait:"😸", check:"🐱", passed:"😻", smoked:"😽" };
+
+const WAIT_MS = 5*60*1000;
+const TIPS = ["Bir bardak su iç.","Pencereyi aç, biraz temiz hava al.","Ellerini yıka, yüzüne su çarp.","Bir sakız ya da bir dilim elma ye.","Kalk, evin içinde biraz yürü.","Torunlarından birine mesaj at.","Bir şarkı aç, mırıldan.","Bu istek bir dalga gibi. Gelir ve geçer."];
+
+const $ = id => document.getElementById(id);
+const ls = {get(k){try{return localStorage.getItem(k)}catch{return null}}, set(k,v){try{localStorage.setItem(k,v)}catch{}}, del(k){try{localStorage.removeItem(k)}catch{}}};
+let today = [];
+
+// ---------- kediler ----------
+document.querySelectorAll("[data-cat]").forEach(el=>{
+  const k = el.dataset.cat;
+  if (PHOTOS[k]) { const img = new Image(); img.src = PHOTOS[k]; img.alt = ""; img.onerror = () => { el.textContent = CATS[k]; }; el.append(img); }
+  else el.textContent = CATS[k];
+});
+
+// ---------- kayıt ----------
+function log(type, via){
+  const ts = Date.now();
+  today.push({ type, ts });
+  renderToday();
+  if (!fb) { pending.push([type, via, ts]); return; }
+  fb.logEvent(type, via, ts).catch(() => { $("status").textContent = "Kaydedilemedi. İnternet gelince tekrar dene."; });
+}
+
+// ---------- ekranlar ----------
+const SCREENS = ["home","ask","wait","check","passed","smoked"];
+function go(name){
+  SCREENS.forEach(s => $("s-"+s).hidden = s !== name);
+  window.scrollTo(0,0);
+}
+document.querySelectorAll("[data-go]").forEach(b => b.onclick = () => go(b.dataset.go));
+
+$("b-crave").onclick     = () => { log("craving"); go("ask"); };
+$("b-smoke-now").onclick = () => { log("smoked","ask"); go("smoked"); };
+$("b-manual").onclick    = () => { log("smoked","manual"); go("smoked"); };
+$("b-wait").onclick      = () => { log("wait"); startTimer(Date.now()+WAIT_MS); };
+$("b-passed").onclick    = () => {
+  const n = count("passed") + 1;
+  log("passed");
+  $("passed-sub").textContent = n > 1 ? `Bugün ${n} kez vazgeçtin.` : "Bugün ilk zaferin!";
+  go("passed");
+};
+$("b-still").onclick     = () => { log("smoked","after-wait"); go("smoked"); };
+
+// ---------- sayaç (siteden çıkılsa da devam eder) ----------
+let timerEnd = null, timerInt = null;
+function startTimer(end){
+  timerEnd = end; ls.set("timerEnd", String(end));
+  setMode("tips"); go("wait"); tick();
+  clearInterval(timerInt); timerInt = setInterval(tick, 250);
+}
+function tick(){
+  const left = Math.max(0, timerEnd - Date.now());
+  const s = Math.ceil(left/1000);
+  $("timer").textContent = Math.floor(s/60) + ":" + String(s%60).padStart(2,"0");
+  $("prog").style.width = (100*(1-left/WAIT_MS)) + "%";
+  if (left <= 0) { clearInterval(timerInt); timerEnd = null; ls.del("timerEnd"); go("check"); }
+}
+document.addEventListener("visibilitychange", () => { if (!document.hidden && timerEnd) tick(); });
+
+// ---------- bekleme modları ----------
+let tipI = Math.floor(Math.random()*TIPS.length), tipInt = null;
+function showTip(){ $("tip").textContent = TIPS[tipI % TIPS.length]; tipI++; }
+function setMode(m){
+  document.querySelectorAll(".seg button").forEach(b => b.setAttribute("aria-pressed", b.dataset.mode === m));
+  $("p-tips").hidden = m !== "tips"; $("p-game").hidden = m !== "game";
+  clearInterval(tipInt);
+  if (m === "tips") { showTip(); tipInt = setInterval(showTip, 20000); }
+  if (m === "game" && !board.length) newBoard();
+}
+document.querySelectorAll(".seg button").forEach(b => b.onclick = () => setMode(b.dataset.mode));
+
+// ---------- oyun ----------
+const N = 7, FRUITS = ["🍓","🍋","🫐","🍇","🍊","🥝"];
+let board = [], sel = -1, busy = false, score = 0;
+const rnd = () => FRUITS[Math.floor(Math.random()*FRUITS.length)];
+function newBoard(){
+  board = [];
+  for (let i=0;i<N*N;i++){
+    let f; do { f = rnd(); } while (
+      (i%N>=2 && board[i-1]===f && board[i-2]===f) ||
+      (i>=2*N && board[i-N]===f && board[i-2*N]===f));
+    board.push(f);
+  }
+  sel = -1; drawBoard();
+}
+function drawBoard(pop = new Set()){
+  const el = $("board");
+  if (el.children.length !== N*N)
+    el.replaceChildren(...board.map((_,i) => { const b = document.createElement("button"); b.onclick = () => tap(i); return b; }));
+  [...el.children].forEach((b,i) => {
+    b.textContent = board[i] || "";
+    b.classList.toggle("sel", i === sel);
+    b.classList.toggle("pop", pop.has(i));
+    b.setAttribute("aria-label", (board[i]||"boş") + " satır " + (Math.floor(i/N)+1) + " sütun " + (i%N+1));
+  });
+  $("score").textContent = score;
+}
+function findMatches(){
+  const m = new Set();
+  for (let r=0;r<N;r++) for (let c=0;c<N;c++){
+    const f = board[r*N+c]; if (!f) continue;
+    if (c<=N-3){ let k=c; while(k<N && board[r*N+k]===f) k++; if (k-c>=3) for(let j=c;j<k;j++) m.add(r*N+j); }
+    if (r<=N-3){ let k=r; while(k<N && board[k*N+c]===f) k++; if (k-r>=3) for(let j=r;j<k;j++) m.add(j*N+c); }
+  }
+  return m;
+}
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+async function resolve(){
+  let m = findMatches();
+  while (m.size){
+    score += m.size*10; drawBoard(m); await sleep(220);
+    m.forEach(i => board[i] = null);
+    for (let c=0;c<N;c++){
+      const col = []; for (let r=N-1;r>=0;r--){ const v = board[r*N+c]; if (v) col.push(v); }
+      for (let r=N-1,k=0;r>=0;r--,k++) board[r*N+c] = col[k] || rnd();
+    }
+    drawBoard(); await sleep(180);
+    m = findMatches();
+  }
+}
+async function tap(i){
+  if (busy) return;
+  if (sel < 0) { sel = i; drawBoard(); return; }
+  if (sel === i) { sel = -1; drawBoard(); return; }
+  const a = sel, adj = (Math.abs(a-i)===1 && Math.floor(a/N)===Math.floor(i/N)) || Math.abs(a-i)===N;
+  if (!adj) { sel = i; drawBoard(); return; }
+  busy = true; sel = -1;
+  [board[a],board[i]] = [board[i],board[a]]; drawBoard(); await sleep(150);
+  if (findMatches().size) await resolve();
+  else { [board[a],board[i]] = [board[i],board[a]]; const el=$("board"); el.classList.add("shake"); await sleep(300); el.classList.remove("shake"); drawBoard(); }
+  busy = false;
+}
+$("b-shuffle").onclick = () => { if (!busy) newBoard(); };
+
+// ---------- bugünün sayıları ----------
+const count = t => today.filter(e => e.type === t).length;
+function renderToday(){ $("t-smoked").textContent = count("smoked"); $("t-passed").textContent = count("passed"); }
+import("./firebase.js").then(m => {
+  fb = m;
+  pending.splice(0).forEach(([t, v, ts]) => fb.logEvent(t, v, ts).catch(() => {}));
+  fb.watchToday(evs => { today = evs; renderToday(); $("status").textContent = ""; },
+                () => { $("status").textContent = "Sayılar yüklenemedi. İnternet bağlantını kontrol et."; });
+}).catch(() => { $("status").textContent = "İnternet bağlantısı yok. Düğmeler yine de çalışır."; });
+// Gece yarısı geçince bugünün sayılarını sıfırla
+let lastDay = new Date().getDate();
+setInterval(() => { if (new Date().getDate() !== lastDay) location.reload(); }, 60000);
+
+// ---------- açılış ----------
+const savedEnd = Number(ls.get("timerEnd"));
+if (savedEnd && savedEnd > Date.now()) startTimer(savedEnd);
+else if (savedEnd) { ls.del("timerEnd"); go("check"); }
+</script>
+</body>
+</html>
