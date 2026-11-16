@@ -160,8 +160,15 @@ function send(ev, via){
   if (!fb) { pending.push([ev, via]); return; }
   fb.logEvent(ev.type, via, ev.ts)
     .then(() => { ev.ackedAt = Date.now(); })
-    .catch(() => { $("status").textContent = "Kaydedilemedi. İnternet gelince tekrar dene."; });
+    .catch(err => {
+      // Kayıt reddedildiyse sayılardan da çıkar ki ekrandaki borç yanlış görünmesin
+      localOnly = localOnly.filter(e => e !== ev); render();
+      showError(err && err.code === "permission-denied"
+        ? "Kayıt Firebase tarafından reddedildi. Bunu bana haber ver."
+        : "Kaydedilemedi. İnternet gelince tekrar dene.");
+    });
 }
+function showError(msg){ const el = $("status"); el.textContent = msg; el.classList.add("error"); }
 function log(type, via){
   const ev = { type, ts: Date.now() };
   localOnly.push(ev);
@@ -378,16 +385,18 @@ async function refresh(){
   if (!fb) return;
   const t0 = Date.now(), day = dayKey(t0), month = day.slice(0, 7);
   try {
-    const [m, t, p] = await Promise.all([
-      fb.countWhere({ month, type: "smoked" }),
-      fb.countWhere({ day, type: "smoked" }),
+    const [smokedByDay, p] = await Promise.all([
+      fb.countDays("smoked", fb.monthDays(t0)),
       fb.countWhere({ day, type: "passed" }),
     ]);
+    const m = Object.values(smokedByDay).reduce((a, b) => a + b, 0);
+    const t = smokedByDay[day] || 0;
     base = { day, month, m, t, p };
     ls.set("counts", JSON.stringify(base));
     // Sunucuya sayımdan önce ulaşmış kayıtlar artık sayının içinde
     localOnly = localOnly.filter(e => !(e.ackedAt && e.ackedAt < t0));
-    render(); $("status").textContent = "";
+    render();
+    if (!$("status").classList.contains("error")) $("status").textContent = "";
   } catch { $("status").textContent = "Sayılar güncellenemedi. İnternet bağlantını kontrol et."; }
 }
 import("./firebase.js").then(m => {

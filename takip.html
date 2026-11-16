@@ -47,7 +47,7 @@
 </div>
 
 <script type="module">
-import { watchRecent, countWhere, dayKey, monthKey } from "./firebase.js";
+import { watchRecent, countWhere, countDays, monthDays, dayKey, monthKey } from "./firebase.js";
 
 const $ = id => document.getElementById(id);
 const BORC_TL = 1;
@@ -58,14 +58,16 @@ const VIA = { manual:" (kendisi ekledi)", "after-wait":" (5 dk bekledikten sonra
 async function renderCounts(){
   const now = new Date(), today = dayKey(now.getTime()), month = monthKey(now.getTime());
   const days = [...Array(7)].map((_,k) => new Date(now.getFullYear(), now.getMonth(), now.getDate()-k));
-  const [tc, tp, ts, ms, mp, ...perDay] = await Promise.all([
+  // Bu ayın günleri + grafikteki son 7 gün (önceki aya taşabilir)
+  const allDays = [...new Set([...monthDays(now.getTime()), ...days.map(d => dayKey(d.getTime()))])];
+  const [smoked, passed, tc] = await Promise.all([
+    countDays("smoked", allDays),
+    countDays("passed", allDays),
     countWhere({ day: today, type: "craving" }),
-    countWhere({ day: today, type: "passed" }),
-    countWhere({ day: today, type: "smoked" }),
-    countWhere({ month, type: "smoked" }),
-    countWhere({ month, type: "passed" }),
-    ...days.flatMap(d => [countWhere({ day: dayKey(d.getTime()), type: "smoked" }), countWhere({ day: dayKey(d.getTime()), type: "passed" })]),
   ]);
+  const inMonth = obj => Object.entries(obj).filter(([d]) => d.startsWith(month)).reduce((a, [, n]) => a + n, 0);
+  const tp = passed[today] || 0, ts = smoked[today] || 0, ms = inMonth(smoked), mp = inMonth(passed);
+  const perDay = days.flatMap(d => [smoked[dayKey(d.getTime())] || 0, passed[dayKey(d.getTime())] || 0]);
   $("f-craving").textContent = tc; $("f-passed").textContent = tp; $("f-smoked").textContent = ts;
   $("m-name").textContent = MONTHS[now.getMonth()] + " ayı";
   $("m-smoked").textContent = ms;

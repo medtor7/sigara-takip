@@ -51,6 +51,7 @@ button:focus-visible{outline:3px solid var(--warm);outline-offset:2px}
 .stat.good b{color:var(--accent)}
 .small-link{background:none;border:0;color:var(--muted);text-decoration:underline;font-size:15px;padding:8px}
 .status{font-size:14px;color:var(--muted);text-align:center}
+.status.error{color:var(--no);background:var(--no-soft);border-radius:12px;padding:10px 12px;font-weight:700}
 
 /* bekleme */
 .seg{display:flex;gap:6px;width:100%}

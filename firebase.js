@@ -31,7 +31,7 @@ export const monthKey = ts => dayKey(ts).slice(0, 7);
 
 // type: "craving" | "wait" | "passed" | "smoked"; via: "ask" | "manual" | "after-wait"
 export function logEvent(type, via, ts = Date.now()) {
-  const ev = { type, ts, day: dayKey(ts), month: monthKey(ts) };
+  const ev = { type, ts, day: dayKey(ts) };
   if (via) ev.via = via;
   return addDoc(events, ev);
 }
@@ -42,6 +42,17 @@ export async function countWhere(filters) {
   const q = query(events, ...Object.entries(filters).map(([f, v]) => where(f, "==", v)));
   const s = await getCountFromServer(q);
   return s.data().count;
+}
+
+// Ayın 1'inden bugüne her gün için ayrı sayım; toplamı ve günlük sayıları döner.
+export function monthDays(ts = Date.now()) {
+  const d = new Date(ts), out = [];
+  for (let i = 1; i <= d.getDate(); i++) out.push(dayKey(new Date(d.getFullYear(), d.getMonth(), i).getTime()));
+  return out;
+}
+export async function countDays(type, days) {
+  const counts = await Promise.all(days.map(day => countWhere({ day, type })));
+  return Object.fromEntries(days.map((d, i) => [d, counts[i]]));
 }
 
 // Son hareketler (takip sayfası için, sadece son birkaç kayıt)
