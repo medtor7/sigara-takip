@@ -331,7 +331,7 @@ const game = (() => {
     }
   }
   const pop = (x, y, txt, tone = "good", life = 0.7) => pops.push({ x, y, txt, tone, life, max: life });   // küçük uçan yazılar
-  const banner = txt => banners.push({ txt, life: 1.1, max: 1.1 });   // ortadaki büyük yazının süresi (saniye)
+  const banner = txt => banners.push({ txt, life: 1.6, max: 1.6 });   // üstteki duyuru yazısının süresi (saniye)
   const CONFETTI = () => [C.warm, C.accent, C.no, "#F2C94C", "#6FA8DC", "#B48EF0"];
 
   function hud(){
@@ -496,13 +496,14 @@ const game = (() => {
       ctx.fillText(p.txt, x, p.y);
     }
     ctx.globalAlpha = 1;
-    for (const b of banners) {
-      const a = Math.min(1, b.life*4, (b.max - b.life)*8);
-      ctx.globalAlpha = a;
-      ctx.font = "600 22px Fredoka, Nunito, sans-serif";
-      const tw = Math.min(W - 24, ctx.measureText(b.txt).width + 32);
-      ctx.fillStyle = C.ink; ctx.beginPath(); ctx.roundRect ? ctx.roundRect(W/2 - tw/2, H*0.36, tw, 44, 22) : ctx.rect(W/2 - tw/2, H*0.36, tw, 44); ctx.fill();
-      ctx.fillStyle = C.bg; ctx.fillText(b.txt, W/2, H*0.36 + 29, W - 40);
+    // duyurular üstteki tentenin üzerinde, oyunu kapatmadan gösterilir (sadece en sonuncusu)
+    for (const b of banners.slice(-1)) {
+      ctx.globalAlpha = Math.min(1, b.life*4, (b.max - b.life)*8);
+      ctx.font = "600 18px Fredoka, Nunito, sans-serif";
+      const tw = Math.min(W - 16, ctx.measureText(b.txt).width + 28);
+      ctx.fillStyle = C.ink; ctx.beginPath();
+      ctx.roundRect ? ctx.roundRect(W/2 - tw/2, 4, tw, 32, 16) : ctx.rect(W/2 - tw/2, 4, tw, 32); ctx.fill();
+      ctx.fillStyle = C.bg; ctx.fillText(b.txt, W/2, 26, W - 32);
     }
     ctx.globalAlpha = 1;
     ctx.restore();
