@@ -96,9 +96,16 @@
 // Firebase sonradan yüklenir; yüklenemese bile düğmeler çalışır.
 let fb = null; const pending = [];
 
-// Kedi fotoğrafları: images klasörüne koyduğun dosyanın adını yaz (ör. "images/mutsuz.jpg").
-// Boş bırakılan ekranda kedi emojisi görünür.
-const PHOTOS = { home:"", ask:"", wait:"", check:"", passed:"", smoked:"" };
+// Kedi görselleri (jpg, png ya da gif). Boş bırakılan ekranda kedi emojisi görünür.
+// pos: yuvarlak çerçevede görselin hangi kısmının görüneceği ("yatay dikey").
+const PHOTOS = {
+  home:   { src:"images/1-ana.jpg" },
+  ask:    { src:"images/2-canim-cekiyor.jpg", pos:"50% 30%" },
+  wait:   { src:"images/3-bekleme.jpg",       pos:"45% 35%" },
+  check:  { src:"images/4-gecti-mi.jpg" },
+  passed: { src:"images/5-aferin.jpg" },
+  smoked: { src:"" },
+};
 const CATS   = { home:"😺", ask:"😿", wait:"😸", check:"🐱", passed:"😻", smoked:"😽" };
 
 const WAIT_MS = 5*60*1000;
@@ -111,7 +118,13 @@ let today = [];
 // ---------- kediler ----------
 document.querySelectorAll("[data-cat]").forEach(el=>{
   const k = el.dataset.cat;
-  if (PHOTOS[k]) { const img = new Image(); img.src = PHOTOS[k]; img.alt = ""; img.onerror = () => { el.textContent = CATS[k]; }; el.append(img); }
+  const ph = PHOTOS[k];
+  if (ph && ph.src) {
+    const img = new Image(); img.src = ph.src; img.alt = "";
+    if (ph.pos) img.style.objectPosition = ph.pos;
+    img.onerror = () => { el.textContent = CATS[k]; };
+    el.append(img);
+  }
   else el.textContent = CATS[k];
 });
 
