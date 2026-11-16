@@ -39,6 +39,8 @@
     <div class="days" id="days"></div>
   </div>
 
+  <p class="since-line" id="since-line" hidden></p>
+
   <div class="card">
     <h2>Son hareketler</h2>
     <ul class="feed" id="feed"><li class="empty">Yükleniyor…</li></ul>
@@ -48,7 +50,7 @@
 </div>
 
 <script type="module">
-import { watchRecent, countWhere, countDays, monthDays, gameSummary, dayKey, monthKey } from "./firebase.js";
+import { watchRecent, countWhere, countDays, monthDays, gameSummary, lastSmokedTs, dayKey, monthKey } from "./firebase.js";
 
 const $ = id => document.getElementById(id);
 const BORC_TL = 1;
@@ -96,6 +98,22 @@ async function renderCounts(){
   }));
 }
 
+let lastSmoked = 0;
+function sinceText(ms){
+  const m = Math.floor(ms/60000), h = Math.floor(m/60), d = Math.floor(h/24);
+  if (m < 1) return "az önce";
+  if (h < 1) return `${m} dakika`;
+  if (d < 1) return m % 60 ? `${h} saat ${m % 60} dakika` : `${h} saat`;
+  return h % 24 ? `${d} gün ${h % 24} saat` : `${d} gün`;
+}
+function renderSince(){
+  const el = $("since-line");
+  if (!lastSmoked) { el.hidden = true; return; }
+  el.hidden = false;
+  el.textContent = `⏱️ Son sigarasının üzerinden ${sinceText(Date.now() - lastSmoked)} geçti`;
+}
+setInterval(renderSince, 30000);
+
 function renderFeed(events){
   const feed = $("feed"), todayKey = dayKey(Date.now());
   if (!events.length) {
@@ -119,6 +137,9 @@ const fail = () => { $("feed").innerHTML = '<li class="empty">Kayıtlar yüklene
 let debounce = null;
 watchRecent(30, evs => {
   renderFeed(evs);
+  const s = evs.find(e => e.type === "smoked");
+  if (s) { lastSmoked = Math.max(lastSmoked, s.ts); renderSince(); }
+  else if (!lastSmoked) lastSmokedTs().then(t => { if (t) { lastSmoked = t; renderSince(); } }).catch(() => {});
   clearTimeout(debounce); debounce = setTimeout(() => renderCounts().catch(fail), 800);
 }, fail);
 </script>

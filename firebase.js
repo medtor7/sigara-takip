@@ -37,6 +37,17 @@ export function logEvent(type, via, ts = Date.now(), extra = {}) {
   return addDoc(events, ev);
 }
 
+// Son içilen sigaranın zamanı (bugün, dün ve önceki gün içinde arar). Bulamazsa null.
+export async function lastSmokedTs(now = Date.now()) {
+  for (let k = 0; k < 3; k++) {
+    const d = new Date(now); d.setDate(d.getDate() - k);
+    const s = await getDocs(query(events, where("day", "==", dayKey(d.getTime())), where("type", "==", "smoked")));
+    let max = 0; s.forEach(x => { max = Math.max(max, x.data().ts || 0); });
+    if (max) return max;
+  }
+  return null;
+}
+
 // Bir günün oyun özetini toplar: kaç kez, kaç saniye, kaç sigara kırıldı
 // (günde birkaç oyun kaydı olur; tek tek okumak ucuz ve ek ayar gerektirmez)
 export async function gameSummary(day) {

@@ -24,6 +24,10 @@
     <button class="btn smoked-btn" id="b-manual">1 sigara içtim</button>
     <p class="toast" id="toast" role="status" hidden><span id="toast-txt"></span> <button class="undo" id="b-undo">Geri al</button></p>
 
+    <div class="since" id="since" hidden>
+      <span>Son sigaradan beri</span>
+      <b id="since-time">–</b>
+    </div>
     <ul class="tally">
       <li><span>Bugün</span><b><span id="t-smoked">0</span> sigara</b></li>
       <li><span id="m-name">Bu ay</span><b><span id="m-smoked">0</span> sigara</b></li>
@@ -175,10 +179,33 @@ function sendGame(broken, secs){
 function showError(msg){ const el = $("status"); el.textContent = msg; el.classList.add("error"); }
 function log(type, via){
   const ev = { type, ts: Date.now() };
+  if (type === "smoked") setLastSmoked(ev.ts);
   localOnly.push(ev);
   render();
   send(ev, via);
 }
+
+// ---------- son sigaradan beri geçen süre ----------
+let lastSmoked = Number(ls.get("lastSmoked")) || 0;
+function setLastSmoked(ts){
+  if (!ts || ts <= lastSmoked) return;
+  lastSmoked = ts; ls.set("lastSmoked", String(ts)); renderSince();
+}
+function sinceText(ms){
+  const m = Math.floor(ms/60000), h = Math.floor(m/60), d = Math.floor(h/24);
+  if (m < 1) return "az önce";
+  if (h < 1) return `${m} dakika`;
+  if (d < 1) return m % 60 ? `${h} saat ${m % 60} dakika` : `${h} saat`;
+  return h % 24 ? `${d} gün ${h % 24} saat` : `${d} gün`;
+}
+function renderSince(){
+  if (!lastSmoked) { $("since").hidden = true; return; }
+  const ms = Date.now() - lastSmoked;
+  $("since").hidden = false;
+  $("since-time").textContent = sinceText(ms);
+  $("since").classList.toggle("long", ms >= 60*60000);   // 1 saati geçince yeşil
+}
+setInterval(renderSince, 30000);
 
 // ---------- sayılar ----------
 let undoTimer = null;
@@ -573,6 +600,7 @@ import("./firebase.js").then(m => {
   pending.splice(0).forEach(([ev, v]) => send(ev, v));
   pendingGames.splice(0).forEach(([b, s, ts]) => fb.logEvent("game", null, ts, { broken: b, secs: s }).catch(() => {}));
   refresh();
+  fb.lastSmokedTs().then(setLastSmoked).catch(() => {});
 }).catch(() => { $("status").textContent = "İnternet bağlantısı yok. Düğmeler yine de çalışır."; });
 document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
 // Uygulamadan çıkınca oyun oturumunu kaydet; geri gelince oyun açıksa devam etsin
@@ -587,7 +615,7 @@ let lastDay = dayKey(Date.now());
 setInterval(() => { if (dayKey(Date.now()) !== lastDay && !timerEnd) location.reload(); }, 60000);
 
 // ---------- açılış ----------
-render();
+render(); renderSince();
 const savedEnd = Number(ls.get("timerEnd"));
 if (savedEnd && savedEnd > Date.now()) startTimer(savedEnd);
 else if (savedEnd) { ls.del("timerEnd"); go("check"); }
