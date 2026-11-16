@@ -330,8 +330,8 @@ const game = (() => {
         color: colors[i % colors.length], size: kind === "conf" ? 5 + Math.random()*4 : 2 + Math.random()*3, kind, r: Math.random()*6, vr: (Math.random() - .5)*12 });
     }
   }
-  const pop = (x, y, txt, tone = "good", life = 1) => pops.push({ x, y, txt, tone, life, max: life });
-  const banner = txt => banners.push({ txt, life: 2.2 });
+  const pop = (x, y, txt, tone = "good", life = 0.7) => pops.push({ x, y, txt, tone, life, max: life });   // küçük uçan yazılar
+  const banner = txt => banners.push({ txt, life: 1.1, max: 1.1 });   // ortadaki büyük yazının süresi (saniye)
   const CONFETTI = () => [C.warm, C.accent, C.no, "#F2C94C", "#6FA8DC", "#B48EF0"];
 
   function hud(){
@@ -346,7 +346,7 @@ const game = (() => {
     const cx = it.x + it.w/2, cy = itCy(it);
     if (it.kind === "healthy") {
       combo = 0; shake = 7; sfx.bad();
-      pop(cx, cy - 22, "Onu vurma! " + it.emoji, "bad", 1.4);
+      pop(cx, cy - 22, "Onu vurma! " + it.emoji, "bad", 0.9);
       burst(cx, cy, ["#7BC47F", "#E25C4A", "#F2C94C"], 12);
       try { navigator.vibrate && navigator.vibrate([40, 40, 40]); } catch {}
       hud(); return;
@@ -360,7 +360,7 @@ const game = (() => {
       shake = 9; sfx.pack();
       for (let k = 0; k < 4; k++) pieces.push({ part: "all", x: cx - 25, y: cy, w: 50, h: 10, vx: (Math.random() - .5)*260, vy: -180 - Math.random()*120, r: 0, vr: (Math.random() - .5)*14 });
       burst(cx, cy, CONFETTI(), 28, 240, "conf");
-      pop(cx, cy - 34, "Paket patladı! 🎉", "gold", 1.4);
+      pop(cx, cy - 34, "Paket patladı! 🎉", "gold", 0.9);
     } else {
       sfx.hit(combo);
       const y = laneY(it.lane);
@@ -406,7 +406,7 @@ const game = (() => {
     pieces = pieces.filter(p => p.y < H + 60);
     for (const p of parts) { p.vy += 420*dt; p.x += p.vx*dt; p.y += p.vy*dt; p.r += p.vr*dt; p.life -= dt; }
     parts = parts.filter(p => p.life > 0);
-    for (const p of pops) { p.life -= dt; p.y -= 34*dt; }
+    for (const p of pops) { p.life -= dt; p.y -= 45*dt; }
     pops = pops.filter(p => p.life > 0);
     for (const b of banners) b.life -= dt;
     banners = banners.filter(b => b.life > 0);
@@ -497,7 +497,7 @@ const game = (() => {
     }
     ctx.globalAlpha = 1;
     for (const b of banners) {
-      const a = Math.min(1, b.life*2, (2.2 - b.life)*6);
+      const a = Math.min(1, b.life*4, (b.max - b.life)*8);
       ctx.globalAlpha = a;
       ctx.font = "600 22px Fredoka, Nunito, sans-serif";
       const tw = Math.min(W - 24, ctx.measureText(b.txt).width + 32);
