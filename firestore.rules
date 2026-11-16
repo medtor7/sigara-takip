@@ -4,12 +4,14 @@ service cloud.firestore {
     // Kayıtlar sadece eklenebilir; değiştirilemez, silinemez.
     match /events/{id} {
       allow read: if true;
-      allow create: if request.resource.data.keys().hasOnly(['type', 'ts', 'day', 'via'])
-        && request.resource.data.type in ['craving', 'wait', 'passed', 'smoked']
+      allow create: if request.resource.data.keys().hasOnly(['type', 'ts', 'day', 'via', 'broken', 'secs'])
+        && request.resource.data.type in ['craving', 'wait', 'passed', 'smoked', 'game']
         && request.resource.data.ts is number
         && request.resource.data.day is string
         && request.resource.data.day.size() == 10
-        && (!('via' in request.resource.data) || request.resource.data.via in ['ask', 'manual', 'after-wait']);
+        && (!('via' in request.resource.data) || request.resource.data.via in ['ask', 'manual', 'after-wait'])
+        && (!('broken' in request.resource.data) || (request.resource.data.broken is int && request.resource.data.broken >= 0 && request.resource.data.broken < 10000))
+        && (!('secs' in request.resource.data) || (request.resource.data.secs is int && request.resource.data.secs >= 0 && request.resource.data.secs < 100000));
       allow update, delete: if false;
     }
     // Başka hiçbir şeye izin yok.

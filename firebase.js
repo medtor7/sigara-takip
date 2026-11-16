@@ -2,7 +2,8 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {
   initializeFirestore, persistentLocalCache, collection, addDoc,
-  query, where, orderBy, limit, onSnapshot, getCountFromServer
+  query, where, orderBy, limit, onSnapshot, getCountFromServer,
+  getDocs
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 const firebaseConfig = {
@@ -30,10 +31,19 @@ export const dayKey = ts => {
 export const monthKey = ts => dayKey(ts).slice(0, 7);
 
 // type: "craving" | "wait" | "passed" | "smoked"; via: "ask" | "manual" | "after-wait"
-export function logEvent(type, via, ts = Date.now()) {
-  const ev = { type, ts, day: dayKey(ts) };
+export function logEvent(type, via, ts = Date.now(), extra = {}) {
+  const ev = { type, ts, day: dayKey(ts), ...extra };
   if (via) ev.via = via;
   return addDoc(events, ev);
+}
+
+// Bir günün oyun özetini toplar: kaç kez, kaç saniye, kaç sigara kırıldı
+// (günde birkaç oyun kaydı olur; tek tek okumak ucuz ve ek ayar gerektirmez)
+export async function gameSummary(day) {
+  const s = await getDocs(query(events, where("day", "==", day), where("type", "==", "game")));
+  const out = { n: 0, secs: 0, broken: 0 };
+  s.forEach(d => { const g = d.data(); out.n++; out.secs += g.secs || 0; out.broken += g.broken || 0; });
+  return out;
 }
 
 // Kayıtları tek tek okumadan sayar (1000 kayıt başına yaklaşık 1 okuma).

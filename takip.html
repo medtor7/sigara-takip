@@ -21,6 +21,7 @@
       <div class="stat good"><b id="f-passed">0</b><span>vazgeçti</span></div>
       <div class="stat"><b id="f-smoked">0</b><span>içti</span></div>
     </div>
+    <p class="note" id="f-game"></p>
   </div>
 
   <div class="card">
@@ -47,12 +48,13 @@
 </div>
 
 <script type="module">
-import { watchRecent, countWhere, countDays, monthDays, dayKey, monthKey } from "./firebase.js";
+import { watchRecent, countWhere, countDays, monthDays, gameSummary, dayKey, monthKey } from "./firebase.js";
 
 const $ = id => document.getElementById(id);
 const BORC_TL = 1;
 const MONTHS = ["Ocak","Şubat","Mart","Nisan","Mayıs","Haziran","Temmuz","Ağustos","Eylül","Ekim","Kasım","Aralık"];
-const LABEL = { craving:"Düğmeye bastı", wait:"Beklemeye başladı", passed:"Vazgeçti", smoked:"Sigara içti" };
+const LABEL = { craving:"Düğmeye bastı", wait:"Beklemeye başladı", passed:"Vazgeçti", smoked:"Sigara içti", game:"Oyun oynadı" };
+const dur = s => s < 60 ? `${s} sn` : `${Math.round(s/60)} dk`;
 const VIA = { manual:" (kendisi ekledi)", "after-wait":" (5 dk bekledikten sonra)" };
 
 async function renderCounts(){
@@ -69,6 +71,11 @@ async function renderCounts(){
   const tp = passed[today] || 0, ts = smoked[today] || 0, ms = inMonth(smoked), mp = inMonth(passed);
   const perDay = days.flatMap(d => [smoked[dayKey(d.getTime())] || 0, passed[dayKey(d.getTime())] || 0]);
   $("f-craving").textContent = tc; $("f-passed").textContent = tp; $("f-smoked").textContent = ts;
+  gameSummary(today).then(g => {
+    $("f-game").textContent = g.n
+      ? `🎯 Bugün ${g.n} kez oyun oynadı · toplam ${dur(g.secs)} · ${g.broken} sigara kırdı`
+      : "🎯 Bugün henüz oyun oynamadı";
+  }).catch(() => { $("f-game").textContent = ""; });
   $("m-name").textContent = MONTHS[now.getMonth()] + " ayı";
   $("m-smoked").textContent = ms;
   $("m-debt").textContent = (ms * BORC_TL).toLocaleString("tr-TR") + " ₺";
@@ -102,7 +109,8 @@ function renderFeed(events){
     t.textContent = (e.day === todayKey ? "" : d.toLocaleDateString("tr-TR",{day:"numeric",month:"short"}) + " ")
                   + d.toLocaleTimeString("tr-TR",{hour:"2-digit",minute:"2-digit"});
     const pill = document.createElement("span"); pill.className = "pill " + e.type;
-    pill.textContent = (LABEL[e.type] || e.type) + (e.type === "smoked" && VIA[e.via] ? VIA[e.via] : "");
+    pill.textContent = (LABEL[e.type] || e.type) + (e.type === "smoked" && VIA[e.via] ? VIA[e.via] : "")
+      + (e.type === "game" ? ` · ${dur(e.secs || 0)} · ${e.broken || 0} sigara kırdı` : "");
     li.append(t,pill); return li;
   }));
 }

@@ -165,6 +165,13 @@ function send(ev, via){
         : "Kaydedilemedi. İnternet gelince tekrar dene.");
     });
 }
+// Oyun oturumu kaydı. Firebase kuralları "game" türüne izin vermiyorsa sessizce atlanır.
+const pendingGames = [];
+function sendGame(broken, secs){
+  const ts = Date.now();
+  if (!fb) { pendingGames.push([broken, secs, ts]); return; }
+  fb.logEvent("game", null, ts, { broken, secs }).catch(() => {});
+}
 function showError(msg){ const el = $("status"); el.textContent = msg; el.classList.add("error"); }
 function log(type, via){
   const ev = { type, ts: Date.now() };
@@ -266,6 +273,7 @@ const game = (() => {
   let W = 0, H = 0, raf = null, last = 0, time = 0;
   let items = [], balls = [], pieces = [], parts = [], pops = [], banners = [];
   let score = 0, broken = 0, combo = 0, lastHit = -9, level = 1, lungs = 0, shake = 0;
+  let sessStart = 0, sessBroken = 0;   // takip sayfası için oyun oturumu
   let best = Number(ls.get("gameBest")) || 0, total = Number(ls.get("gameTotal")) || 0;
   let muted = ls.get("gameMuted") === "1";
   const LANES = [0.24, 0.46, 0.68];
@@ -354,7 +362,7 @@ const game = (() => {
     combo = (time - lastHit < 1.6) ? Math.min(combo + 1, 5) : 1; lastHit = time;
     const pts = (it.kind === "pack" ? 50 : 10)*combo;
     const n = it.kind === "pack" ? 5 : 1;
-    score += pts; broken += n; total += n;
+    score += pts; broken += n; total += n; sessBroken += n;
     lungs = Math.min(100, lungs + (it.kind === "pack" ? 20 : 6));
     if (it.kind === "pack") {
       shake = 9; sfx.pack();
@@ -526,8 +534,18 @@ const game = (() => {
       C = { surface: css("--surface"), no: css("--no"), line: css("--line"), warm: css("--warm"), accent: css("--accent"), muted: css("--muted"), bg: css("--bg"), ink: css("--ink") };
       resize(); if (!items.length) reset();
       hud(); last = 0; raf = requestAnimationFrame(loop);
+      sessStart = Date.now(); sessBroken = 0;
     },
-    stop(){ if (raf) cancelAnimationFrame(raf); raf = null; }
+    stop(){
+      if (raf) cancelAnimationFrame(raf);
+      raf = null;
+      if (sessStart) {
+        const secs = Math.round((Date.now() - sessStart)/1000);
+        if (secs >= 5 || sessBroken > 0) sendGame(sessBroken, secs);
+        sessStart = 0; sessBroken = 0;
+      }
+    },
+    running: () => !!raf
   };
 })();
 
@@ -553,9 +571,16 @@ async function refresh(){
 import("./firebase.js").then(m => {
   fb = m;
   pending.splice(0).forEach(([ev, v]) => send(ev, v));
+  pendingGames.splice(0).forEach(([b, s, ts]) => fb.logEvent("game", null, ts, { broken: b, secs: s }).catch(() => {}));
   refresh();
 }).catch(() => { $("status").textContent = "İnternet bağlantısı yok. Düğmeler yine de çalışır."; });
 document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
+// Uygulamadan çıkınca oyun oturumunu kaydet; geri gelince oyun açıksa devam etsin
+let gameWasRunning = false;
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) { gameWasRunning = game.running(); if (gameWasRunning) game.stop(); }
+  else if (gameWasRunning && !$("s-wait").hidden && !$("p-game").hidden) game.start();
+});
 
 // Gün ya da ay değişince sayıları yenile
 let lastDay = dayKey(Date.now());
