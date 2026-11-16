@@ -19,7 +19,7 @@
   <!-- ANA SAYFA -->
   <section class="screen" id="s-home">
     <div class="cat medium" data-cat="home"></div>
-    <h1 class="msg">Merhaba anneciğim</h1>
+    <h1 class="msg" id="home-msg">Merhaba anneciğim</h1>
     <button class="big" id="b-crave">Canım çekiyor</button>
     <button class="btn smoked-btn" id="b-manual">1 sigara içtim</button>
     <p class="toast" id="toast" role="status" hidden><span id="toast-txt"></span> <button class="undo" id="b-undo">Geri al</button></p>
@@ -112,8 +112,10 @@ const PHOTOS = {
   check:  { src:"images/4-gecti-mi.jpg" },
   passed: { src:"images/5-aferin.jpg" },
   smoked: { src:"images/6-tamam-ic.jpg",      pos:"40% 40%" },
+  angry:  { src:"images/7-sinirli.jpg",       pos:"58% 40%" },   // günlük sınır aşılınca ana sayfada
 };
-const CATS = { home:"😺", ask:"😿", wait:"😸", check:"🐱", passed:"😻", smoked:"😽" };
+const CATS = { home:"😺", ask:"😿", wait:"😸", check:"🐱", passed:"😻", smoked:"😽", angry:"😾" };
+const GUNLUK_SINIR = 10;         // bugün bundan fazla içilince ana sayfadaki kedi sinirlenir
 
 const BORC_TL = 1;               // her sigara için borç (TL)
 const WAIT_MS = 5*60*1000;       // bekleme süresi
@@ -132,15 +134,26 @@ try { const c = JSON.parse(ls.get("counts") || "null"); if (c) base = c; } catch
 let localOnly = [];              // bu cihazdan eklenen, henüz sayılara girmemiş kayıtlar
 
 // ---------- kediler ----------
-document.querySelectorAll("[data-cat]").forEach(el => {
-  const k = el.dataset.cat, ph = PHOTOS[k];
+function fillCat(el, k){
+  const ph = PHOTOS[k];
+  el.replaceChildren();
   if (ph && ph.src) {
     const img = new Image(); img.src = ph.src; img.alt = "";
     if (ph.pos) img.style.objectPosition = ph.pos;
     img.onerror = () => { el.textContent = CATS[k]; };
     el.append(img);
   } else el.textContent = CATS[k];
-});
+}
+document.querySelectorAll("[data-cat]").forEach(el => fillCat(el, el.dataset.cat));
+// Ana sayfa: bugün sınır aşılınca sinirli kedi
+let homeMood = "home";
+function setHomeMood(today){
+  const mood = today > GUNLUK_SINIR ? "angry" : "home";
+  if (mood === homeMood) return;
+  homeMood = mood;
+  fillCat(document.querySelector('[data-cat="home"]'), mood);
+  $("home-msg").textContent = mood === "angry" ? "Yeter artık anne, abartma! 😾" : "Merhaba anneciğim";
+}
 
 // ---------- kayıt ----------
 function send(ev, via){
@@ -168,6 +181,7 @@ function render(){
   const k = counts(), extra = undoTimer ? 1 : 0;
   const monthSmoked = k.m + extra;
   $("t-smoked").textContent = k.t + extra;
+  setHomeMood(k.t + extra);
   $("t-passed").textContent = k.p;
   $("m-smoked").textContent = monthSmoked;
   $("m-debt").textContent = (monthSmoked * BORC_TL).toLocaleString("tr-TR") + " ₺";
