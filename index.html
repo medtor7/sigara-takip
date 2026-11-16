@@ -24,19 +24,12 @@
     <button class="btn smoked-btn" id="b-manual">1 sigara içtim</button>
     <p class="toast" id="toast" role="status" hidden><span id="toast-txt"></span> <button class="undo" id="b-undo">Geri al</button></p>
 
-    <div class="month">
-      <div class="month-head"><span id="m-name">Bu ay</span><span class="note">her ayın 1'inde sıfırlanır</span></div>
-      <div class="month-row">
-        <div><b id="m-smoked">0</b><span>sigara</span></div>
-        <div class="debt"><b id="m-debt">0 ₺</b><span>bana borcun</span></div>
-      </div>
-      <p class="debt-note" id="m-note">Her sigara için bana 1 ₺ borçlusun 😼</p>
-    </div>
-
-    <div class="today">
-      <div class="stat"><b id="t-smoked">0</b><span>bugün içilen</span></div>
-      <div class="stat good"><b id="t-passed">0</b><span>bugün vazgeçtin</span></div>
-    </div>
+    <ul class="tally">
+      <li><span>Bugün</span><b><span id="t-smoked">0</span> sigara</b></li>
+      <li><span id="m-name">Bu ay</span><b><span id="m-smoked">0</span> sigara</b></li>
+      <li class="debt"><span>Bana borcun 😼</span><b id="m-debt">0 ₺</b></li>
+      <li class="good" id="passed-row" hidden><span>Bugün vazgeçtin</span><b><span id="t-passed">0</span> kez 💪</b></li>
+    </ul>
     <p class="status" id="status"></p>
   </section>
 
@@ -65,14 +58,12 @@
     </div>
     <div class="panel game" id="p-game" hidden>
       <div class="gamehead">
-        <span><b id="g-score">0</b> puan</span>
-        <span class="lvl" id="g-level">Seviye 1</span>
+        <span class="gcount">💥 <b id="g-score">0</b></span>
+        <div class="lungbar" aria-hidden="true"><span>🫁</span><div class="lb"><i id="g-lungs"></i></div></div>
         <button class="mute" id="g-mute" aria-label="Sesi kapat">🔊</button>
       </div>
-      <div class="lungbar"><span>🫁 Ciğer temizliği</span><div class="lb"><i id="g-lungs"></i></div></div>
-      <canvas id="cv" aria-label="Hedef oyunu: kayan sigaralara dokun, topu at ve kır"></canvas>
-      <p class="note" id="g-stats"></p>
-      <p class="note">Sigaralara dokun, kır. Kırmızı paketler bonus! 🍎💧🥕 gibi sağlıklı şeyleri vurma.</p>
+      <canvas id="cv" aria-label="Oyun: sigaralara dokun, kır"></canvas>
+      <p class="hint">Sigaralara dokun 👆</p>
     </div>
     <div class="timerbar">
       <span class="t" id="timer">5:00</span>
@@ -196,10 +187,10 @@ function render(){
   $("t-smoked").textContent = k.t + extra;
   setHomeMood(k.t + extra);
   $("t-passed").textContent = k.p;
+  $("passed-row").hidden = k.p === 0;
   $("m-smoked").textContent = monthSmoked;
   $("m-debt").textContent = (monthSmoked * BORC_TL).toLocaleString("tr-TR") + " ₺";
   $("m-name").textContent = MONTHS[new Date().getMonth()] + " ayı";
-  $("m-note").textContent = `Her sigara için bana ${BORC_TL} ₺ borçlusun 😼`;
   return monthSmoked;
 }
 const passedToday = () => counts().p;
@@ -215,7 +206,7 @@ $("b-manual").onclick = () => {
   commitManual();
   undoTimer = setTimeout(commitManual, 5000);
   const n = render();
-  $("toast-txt").textContent = `Kaydettim. Bu ay borcun ${(n*BORC_TL).toLocaleString("tr-TR")} ₺ oldu.`;
+  $("toast-txt").textContent = `Kaydettim. Borcun ${(n*BORC_TL).toLocaleString("tr-TR")} ₺ oldu.`;
   $("toast").hidden = false;
 };
 $("b-undo").onclick = () => { clearTimeout(undoTimer); undoTimer = null; $("toast").hidden = true; render(); };
@@ -279,7 +270,7 @@ const game = (() => {
   let muted = ls.get("gameMuted") === "1";
   const LANES = [0.24, 0.46, 0.68];
   const HEALTHY = ["🍎", "💧", "🥕", "🍌", "🍊"];
-  const NICE = ["Kırıldı!", "Bir sigara eksik!", "Süpersin!", "Pat!", "Harika atış!", "Tam isabet!"];
+  const NICE = ["Kırıldı!", "Süpersin!", "Pat!", "Aferin!"];
   const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
   let C = {};
 
@@ -344,10 +335,8 @@ const game = (() => {
   const CONFETTI = () => [C.warm, C.accent, C.no, "#F2C94C", "#6FA8DC", "#B48EF0"];
 
   function hud(){
-    $("g-score").textContent = score;
-    $("g-level").textContent = "Seviye " + level;
+    $("g-score").textContent = broken;
     $("g-lungs").style.width = lungs + "%";
-    $("g-stats").textContent = `Bu oyunda kırılan: ${broken} · En iyi puan: ${best} · Toplam kırdığın: ${total}`;
     $("g-mute").textContent = muted ? "🔇" : "🔊";
     $("g-mute").setAttribute("aria-label", muted ? "Sesi aç" : "Sesi kapat");
   }
@@ -357,7 +346,7 @@ const game = (() => {
     const cx = it.x + it.w/2, cy = itCy(it);
     if (it.kind === "healthy") {
       combo = 0; shake = 7; sfx.bad();
-      pop(cx, cy - 22, "Onu vurma, sağlıklı! " + it.emoji, "bad", 1.5);
+      pop(cx, cy - 22, "Onu vurma! " + it.emoji, "bad", 1.4);
       burst(cx, cy, ["#7BC47F", "#E25C4A", "#F2C94C"], 12);
       try { navigator.vibrate && navigator.vibrate([40, 40, 40]); } catch {}
       hud(); return;
@@ -371,23 +360,23 @@ const game = (() => {
       shake = 9; sfx.pack();
       for (let k = 0; k < 4; k++) pieces.push({ part: "all", x: cx - 25, y: cy, w: 50, h: 10, vx: (Math.random() - .5)*260, vy: -180 - Math.random()*120, r: 0, vr: (Math.random() - .5)*14 });
       burst(cx, cy, CONFETTI(), 28, 240, "conf");
-      pop(cx, cy - 34, `Paket patladı! +${pts}`, "gold", 1.4);
+      pop(cx, cy - 34, "Paket patladı! 🎉", "gold", 1.4);
     } else {
       sfx.hit(combo);
       const y = laneY(it.lane);
       pieces.push({ part: "filter", x: it.x, y, w: it.w, h: it.h, vx: -70 - Math.random()*50, vy: -150, r: 0, vr: -5 - Math.random()*3 });
       pieces.push({ part: "paper",  x: it.x, y, w: it.w, h: it.h, vx:  70 + Math.random()*50, vy: -170, r: 0, vr:  5 + Math.random()*3 });
       burst(cx, y, ["#C9A27A", "#8A6A4A", "#F7F5F0", "#D98A3D"], 14);
-      pop(cx, cy - 20, combo > 1 ? `${combo}x Kombo! +${pts}` : `${NICE[Math.floor(Math.random()*NICE.length)]} +${pts}`, combo > 2 ? "gold" : "good");
+      pop(cx, cy - 20, combo > 2 ? `${combo} tane üst üste! 🔥` : NICE[Math.floor(Math.random()*NICE.length)], combo > 2 ? "gold" : "good");
     }
     try { navigator.vibrate && navigator.vibrate(25); } catch {}
     if (lungs >= 100) {
       lungs = 0; score += 100; sfx.level();
-      banner("Ciğerlerin nefes aldı! 🫁 +100");
+      banner("Ciğerlerin nefes aldı! 🫁");
       burst(W/2, H*0.4, CONFETTI(), 60, 320, "conf");
     }
     const nl = 1 + Math.floor(broken/12);
-    if (nl > level) { level = nl; banner(`Seviye ${level}! Hızlanıyor 🚀`); sfx.level(); }
+    if (nl > level) { level = nl; banner("Hızlanıyor! 🚀"); sfx.level(); }
     if (score > best) { best = score; ls.set("gameBest", String(best)); }
     ls.set("gameTotal", String(total));
     hud();
@@ -409,7 +398,7 @@ const game = (() => {
         b.done = true;
         const hit = items.find(it => b.tx > it.x - 12 && b.tx < it.x + it.w + 12 && Math.abs(b.ty - itCy(it)) < it.h/2 + 16);
         if (hit) onHit(hit);
-        else { combo = 0; sfx.miss(); pop(b.tx, b.ty - 12, "Iska", "miss", .6); burst(b.tx, b.ty, [C.muted], 4, 60); }
+        else { combo = 0; sfx.miss(); burst(b.tx, b.ty, [C.muted], 4, 60); }
       }
     }
     balls = balls.filter(b => b.t < 1.15);
